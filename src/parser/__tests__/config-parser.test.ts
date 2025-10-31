@@ -322,5 +322,21 @@ test-group: {
       expect(services[0].name).toBe('web-service');
       expect(services[1].name).toBe('worker-service');
     });
+
+    it('should match service with hyphen suffix using prefix without hyphen', () => {
+      // Test the exact scenario from the user: "myservice" should match "myservice-svc"
+      const testGroup: Group = {
+        name: 'test',
+        services: [
+          { name: 'myservice-svc', localPort: 8080, remotePort: 80 },
+          { name: 'other-service', localPort: 8081, remotePort: 80 }
+        ]
+      };
+
+      const services = ConfigParser.findServicesWithPrefix(testGroup, 'myservice');
+
+      expect(services).toHaveLength(1);
+      expect(services[0].name).toBe('myservice-svc');
+    });
   });
 });

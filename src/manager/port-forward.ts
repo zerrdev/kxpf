@@ -18,6 +18,7 @@ export class PortForwardManager {
     return new Promise((resolve, reject) => {
       const isWindows = process.platform === 'win32';
       let child: ChildProcess;
+      let errorOutput = '';
 
       const contextFlag = context ? `--context ${context}` : '';
 
@@ -33,17 +34,24 @@ export class PortForwardManager {
         }
         child = spawn('kubectl', args, {
           detached: true,
-          stdio: 'ignore',
+          stdio: ['ignore', 'pipe', 'pipe'],
           shell: true
         });
       } else {
         // Unix: Try kubectl first, fallback to minikube kubectl
         const kubectlCmd = `kubectl port-forward service/${serviceName} ${localPort}:${remotePort} ${contextFlag}`;
         const minikubeCmd = `minikube kubectl -- port-forward service/${serviceName} ${localPort}:${remotePort} ${contextFlag}`;
-        const command = `(${kubectlCmd} 2>/dev/null || ${minikubeCmd}) &`;
+        const command = `(${kubectlCmd} || ${minikubeCmd}) &`;
         child = spawn('bash', ['-c', command], {
           detached: true,
-          stdio: 'ignore'
+          stdio: ['ignore', 'pipe', 'pipe']
+        });
+      }
+
+      // Collect error output temporarily
+      if (child.stderr) {
+        child.stderr.on('data', (data) => {
+          errorOutput += data.toString();
         });
       }
 
@@ -56,13 +64,28 @@ export class PortForwardManager {
         }
       });
 
+      // Check if process exits immediately (indicates error)
+      child.on('exit', (code) => {
+        if (code !== 0 && code !== null) {
+          const error = errorOutput.trim() || `kubectl port-forward exited with code ${code}`;
+          reject(new Error(`Failed to start port-forward for ${serviceName}: ${error}`));
+        }
+      });
+
       // Wait a moment to ensure the process started successfully
       setTimeout(() => {
-        // Unref to allow parent process to exit
+        // If we get here without error, the process started successfully
+        // Remove the exit listener and unref to allow parent process to exit
+        child.removeAllListeners('exit');
         child.unref();
+
+        // Close stdio streams to truly detach
+        if (child.stdout) child.stdout.destroy();
+        if (child.stderr) child.stderr.destroy();
+
         console.log(`Started port-forward for ${serviceName} on localhost:${localPort} -> ${remotePort}`);
         resolve();
-      }, 100);
+      }, 500);
     });
   }
 

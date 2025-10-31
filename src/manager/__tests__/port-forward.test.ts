@@ -12,6 +12,15 @@ const mockedExec = exec as jest.MockedFunction<typeof exec>;
 class MockChildProcess extends EventEmitter {
   pid = 12345;
   unref = jest.fn();
+  stdout = new EventEmitter() as any;
+  stderr = new EventEmitter() as any;
+
+  constructor() {
+    super();
+    // Add destroy method for stdio streams
+    this.stdout.destroy = jest.fn();
+    this.stderr.destroy = jest.fn();
+  }
 }
 
 describe('PortForwardManager', () => {
@@ -56,14 +65,14 @@ describe('PortForwardManager', () => {
         const promise = PortForwardManager.start('my-service', 8080, 80);
 
         // Wait for the timeout
-        await new Promise(resolve => setTimeout(resolve, 150));
+        await new Promise(resolve => setTimeout(resolve, 550));
 
         expect(mockedSpawn).toHaveBeenCalledWith(
           'kubectl',
           ['port-forward', 'service/my-service', '8080:80'],
           {
             detached: true,
-            stdio: 'ignore',
+            stdio: ['ignore', 'pipe', 'pipe'],
             shell: true
           }
         );
@@ -77,14 +86,14 @@ describe('PortForwardManager', () => {
 
         const promise = PortForwardManager.start('my-service', 8080, 80, 'prod-cluster');
 
-        await new Promise(resolve => setTimeout(resolve, 150));
+        await new Promise(resolve => setTimeout(resolve, 550));
 
         expect(mockedSpawn).toHaveBeenCalledWith(
           'kubectl',
           ['port-forward', 'service/my-service', '8080:80', '--context', 'prod-cluster'],
           {
             detached: true,
-            stdio: 'ignore',
+            stdio: ['ignore', 'pipe', 'pipe'],
             shell: true
           }
         );
@@ -134,14 +143,14 @@ describe('PortForwardManager', () => {
 
         const promise = PortForwardManager.start('my-service', 8080, 80);
 
-        await new Promise(resolve => setTimeout(resolve, 150));
+        await new Promise(resolve => setTimeout(resolve, 550));
 
         expect(mockedSpawn).toHaveBeenCalledWith(
           'bash',
           ['-c', expect.stringContaining('kubectl port-forward service/my-service 8080:80')],
           {
             detached: true,
-            stdio: 'ignore'
+            stdio: ['ignore', 'pipe', 'pipe']
           }
         );
         expect(mockChild.unref).toHaveBeenCalled();
