@@ -23,7 +23,7 @@ export class PortForwardManager {
       const contextFlag = context ? `--context ${context}` : '';
 
       if (isWindows) {
-        // Windows: Use shell directly
+        // Windows: Use shell directly with windowsHide to prevent console windows
         const args = [
           'port-forward',
           `service/${serviceName}`,
@@ -35,7 +35,8 @@ export class PortForwardManager {
         child = spawn('kubectl', args, {
           detached: true,
           stdio: ['ignore', 'pipe', 'pipe'],
-          shell: true
+          shell: true,
+          windowsHide: true
         });
       } else {
         // Unix: Try kubectl first, fallback to minikube kubectl

@@ -73,7 +73,8 @@ describe('PortForwardManager', () => {
           {
             detached: true,
             stdio: ['ignore', 'pipe', 'pipe'],
-            shell: true
+            shell: true,
+            windowsHide: true
           }
         );
         expect(mockChild.unref).toHaveBeenCalled();
@@ -94,7 +95,8 @@ describe('PortForwardManager', () => {
           {
             detached: true,
             stdio: ['ignore', 'pipe', 'pipe'],
-            shell: true
+            shell: true,
+            windowsHide: true
           }
         );
         await promise;
