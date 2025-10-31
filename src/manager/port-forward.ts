@@ -102,8 +102,9 @@ export class PortForwardManager {
       let output: string;
 
       if (isWindows) {
-        // Windows: Use WMIC to list processes
-        const { stdout } = await execAsync('wmic process where "name=\'kubectl.exe\'" get commandline,processid /format:csv');
+        // Windows: Use WMIC to search for kubectl port-forward in command line
+        // Search for any process with "port-forward" in the command line
+        const { stdout } = await execAsync('wmic process where "commandline like \'%port-forward%\' and commandline like \'%kubectl%\'" get commandline,processid /format:csv');
         output = stdout;
 
         const lines = output.split('\n').filter(line => line.includes('port-forward'));
