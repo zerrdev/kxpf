@@ -6,6 +6,7 @@ import { stopCommand } from './commands/stop';
 import { stopAllCommand } from './commands/stop-all';
 import { lsCommand } from './commands/ls';
 import { configCommand } from './commands/config';
+import { findCommand } from './commands/find';
 
 const program = new Command();
 
@@ -52,6 +53,16 @@ program
   .description('Open config file in VSCode or show file path')
   .action(async () => {
     await configCommand();
+  });
+
+// kxpf find <search-term>
+// kxpf -g <group> find <search-term>
+program
+  .command('find <search-term>')
+  .description('Find services in cluster matching the search term')
+  .option('-g, --group <group>', 'Filter by group context')
+  .action(async (searchTerm: string, options: { group?: string }) => {
+    await findCommand(searchTerm, options.group);
   });
 
 program.parse();
