@@ -6,6 +6,7 @@ export interface Service {
 
 export interface Group {
   name: string;
+  context?: string;
   services: Service[];
 }
 
@@ -61,8 +62,15 @@ export class ConfigParser {
         continue;
       }
 
-      // Parse service definition within a group
+      // Parse content within a group
       if (inGroup && currentGroup) {
+        // Check for context declaration (e.g., "context: minikube")
+        const contextMatch = line.match(/^context\s*:\s*(.+)$/);
+        if (contextMatch) {
+          currentGroup.context = contextMatch[1].trim();
+          continue;
+        }
+
         // Service format: "service-name, local-port, remote-port;" or without semicolon
         // Remove trailing semicolon if present
         const serviceLine = line.replace(/;$/, '').trim();

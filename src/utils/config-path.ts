@@ -22,10 +22,18 @@ export function ensureConfigExists(): void {
 
   if (!fs.existsSync(configPath)) {
     const defaultConfig = `# Config format: service-name,local-port,remote-port
+# Optional: Set a context per group with "context: context-name"
 
 example-group: {
     example-service,8080,80
 }
+
+# Example with context:
+# production: {
+#     context: prod-cluster
+#     api-service,8081,80
+#     web-service,8082,80
+# }
 `;
     fs.writeFileSync(configPath, defaultConfig, 'utf-8');
   }

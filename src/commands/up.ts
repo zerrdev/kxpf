@@ -29,8 +29,11 @@ export async function upCommand(groupName: string, servicePrefix?: string): Prom
 
     // Start port-forwards
     console.log(`Starting port-forwards for group "${groupName}"...`);
+    if (group.context) {
+      console.log(`Using context: ${group.context}`);
+    }
     for (const service of services) {
-      await PortForwardManager.start(service.name, service.localPort, service.remotePort);
+      await PortForwardManager.start(service.name, service.localPort, service.remotePort, group.context);
     }
 
     console.log(`\nSuccessfully started ${services.length} port-forward(s)`);

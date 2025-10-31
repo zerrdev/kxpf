@@ -14,10 +14,12 @@ export class PortForwardManager {
   /**
    * Starts a port-forward for a service in detached mode
    */
-  static async start(serviceName: string, localPort: number, remotePort: number): Promise<void> {
+  static async start(serviceName: string, localPort: number, remotePort: number, context?: string): Promise<void> {
     return new Promise((resolve, reject) => {
       const isWindows = process.platform === 'win32';
       let child: ChildProcess;
+
+      const contextFlag = context ? `--context ${context}` : '';
 
       if (isWindows) {
         // Windows: Use shell directly
@@ -26,6 +28,9 @@ export class PortForwardManager {
           `service/${serviceName}`,
           `${localPort}:${remotePort}`
         ];
+        if (context) {
+          args.push('--context', context);
+        }
         child = spawn('kubectl', args, {
           detached: true,
           stdio: 'ignore',
@@ -33,7 +38,9 @@ export class PortForwardManager {
         });
       } else {
         // Unix: Try kubectl first, fallback to minikube kubectl
-        const command = `(kubectl port-forward service/${serviceName} ${localPort}:${remotePort} 2>/dev/null || minikube kubectl -- port-forward service/${serviceName} ${localPort}:${remotePort}) &`;
+        const kubectlCmd = `kubectl port-forward service/${serviceName} ${localPort}:${remotePort} ${contextFlag}`;
+        const minikubeCmd = `minikube kubectl -- port-forward service/${serviceName} ${localPort}:${remotePort} ${contextFlag}`;
+        const command = `(${kubectlCmd} 2>/dev/null || ${minikubeCmd}) &`;
         child = spawn('bash', ['-c', command], {
           detached: true,
           stdio: 'ignore'
