@@ -2,6 +2,7 @@
 
 > A CLI tool for managing groups of Kubernetes service port-forwards
 
+[![npm version](https://img.shields.io/npm/v/kxpf.svg)](https://www.npmjs.com/package/kxpf)
 [![License: ISC](https://img.shields.io/badge/License-ISC-blue.svg)](https://opensource.org/licenses/ISC)
 [![Node Version](https://img.shields.io/badge/node-%3E%3D22.0.0-brightgreen)](https://nodejs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.7-blue)](https://www.typescriptlang.org/)
@@ -20,10 +21,25 @@
 
 ### Prerequisites
 - Node.js 22 or higher
-- Yarn package manager
 - kubectl or minikube configured and accessible
 
-### Install
+### Install via npm (Recommended)
+
+```bash
+npm install -g kxpf
+```
+
+Or using yarn:
+
+```bash
+yarn global add kxpf
+```
+
+After installation, the `kxpf` command will be available globally in your terminal.
+
+### Install from Source
+
+For development or contributing:
 
 ```bash
 # Clone the repository
@@ -39,8 +55,6 @@ yarn build
 # Link globally
 yarn link
 ```
-
-After linking, the `kxpf` command will be available globally in your terminal.
 
 ## Quick Start
 
