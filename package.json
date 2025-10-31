@@ -1,0 +1,28 @@
+{
+  "name": "kxpf",
+  "version": "1.0.0",
+  "description": "CLI tool for managing Kubernetes service port-forwarding groups",
+  "main": "dist/index.js",
+  "bin": {
+    "kxpf": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/index.ts",
+    "start": "node dist/index.js"
+  },
+  "keywords": ["kubernetes", "port-forward", "cli", "kubectl"],
+  "author": "",
+  "license": "ISC",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "dependencies": {
+    "commander": "^12.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "typescript": "^5.7.2",
+    "tsx": "^4.19.2"
+  }
+}
