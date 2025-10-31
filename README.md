@@ -1,6 +1,6 @@
 # kxpf
 
-> **K**ubernetes **P**ort-**F**orward Manager - A CLI tool for managing groups of Kubernetes service port-forwards
+> A CLI tool for managing groups of Kubernetes service port-forwards
 
 [![License: ISC](https://img.shields.io/badge/License-ISC-blue.svg)](https://opensource.org/licenses/ISC)
 [![Node Version](https://img.shields.io/badge/node-%3E%3D22.0.0-brightgreen)](https://nodejs.org)
