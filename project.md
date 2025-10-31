@@ -44,6 +44,7 @@ kxpf provides a declarative configuration file where developers can:
 │ - stop-all   │ │         │ │             │
 │ - ls         │ │         │ │             │
 │ - config     │ │         │ │             │
+│ - find       │ │         │ │             │
 └──────┬───────┘ └─────────┘ └─────────────┘
        │
        │
@@ -170,6 +171,7 @@ ps aux | grep "port-forward" | grep -E "(kubectl|minikube)"
 4. ✅ Context support per group
 5. ✅ Fix: Numbers in group names
 6. ✅ Fix: Kill all processes on stop (not just deduplicated)
+7. ✅ Service discovery with find command
 
 ## Testing
 
@@ -181,6 +183,8 @@ ps aux | grep "port-forward" | grep -E "(kubectl|minikube)"
 - [x] `kxpf stop <prefix>` - Stop by prefix
 - [x] `kxpf stop-all` - Stop all services
 - [x] `kxpf config` - Open config in editor
+- [x] `kxpf find <search>` - Find services in cluster
+- [x] `kxpf find <search> -g <group>` - Find services by context
 - [x] Config with context works
 - [x] Config without context works
 - [x] All processes killed on stop
@@ -197,6 +201,25 @@ ps aux | grep "port-forward" | grep -E "(kubectl|minikube)"
 - ✅ Comments in config → Ignored
 - ✅ Whitespace in config → Trimmed
 - ✅ Numbers in group names → Supported
+
+## Recent Features
+
+### Find Command (2025-10-31)
+
+**Feature**: Service discovery in Kubernetes cluster
+
+**Implementation**:
+- Command: `kxpf find <search-term> [-g <group>]`
+- Uses `kubectl get services --all-namespaces` to query cluster
+- Optional group context filtering via `-g` flag
+- Displays service name, namespace, type, cluster IP, and ports
+
+**Use Cases**:
+- Discover available services before configuring port-forwards
+- Verify service names when setting up config
+- Explore services in different contexts
+
+**File**: `src/commands/find.ts`
 
 ## Future Enhancements
 

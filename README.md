@@ -13,6 +13,7 @@
 - 🎯 **Context Support** - Target different Kubernetes clusters per group
 - 🔄 **Background Processes** - Port-forwards run as detached processes that survive terminal closure
 - 🔍 **Smart Listing** - View all active port-forwards with deduplication
+- 🔎 **Service Discovery** - Find services in your cluster by name with optional context filtering
 - 🎨 **Prefix Matching** - Start/stop services by name prefix for flexible control
 - 🌐 **Cross-Platform** - Works on Windows and Linux
 - ⚡ **Auto-Fallback** - Automatically detects and uses `kubectl` or `minikube kubectl`
@@ -135,6 +136,39 @@ web-service                   8081           3000
 Total: 2 port-forward(s)
 ```
 
+#### Find Services
+
+```bash
+# Find services by name in the cluster
+kxpf find <search-term>
+
+# Find services in a specific group's context
+kxpf find <search-term> -g <group>
+```
+
+**Examples:**
+```bash
+kxpf find ms-                          # Find all services containing "ms-" in any context
+kxpf find api -g production            # Find services with "api" in production context
+```
+
+**Output:**
+```
+Found 3 service(s) matching "ms-":
+
+ms-api-gateway
+  Namespace: default
+  Type: ClusterIP
+  Cluster IP: 10.96.0.1
+  Ports: 8080:8080/TCP
+
+ms-auth-service
+  Namespace: default
+  Type: ClusterIP
+  Cluster IP: 10.96.0.2
+  Ports: 8000:8000/TCP
+```
+
 #### Edit Configuration
 
 ```bash
@@ -233,7 +267,8 @@ kxpf/
 │   │   ├── stop.ts
 │   │   ├── stop-all.ts
 │   │   ├── ls.ts
-│   │   └── config.ts
+│   │   ├── config.ts
+│   │   └── find.ts
 │   ├── manager/              # Port-forward process management
 │   │   └── port-forward.ts
 │   ├── parser/               # Config file parser
