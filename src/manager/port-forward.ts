@@ -15,25 +15,39 @@ export class PortForwardManager {
    * Starts a port-forward for a service in detached mode
    */
   static async start(serviceName: string, localPort: number, remotePort: number): Promise<void> {
-    const isWindows = process.platform === 'win32';
+    return new Promise((resolve, reject) => {
+      const isWindows = process.platform === 'win32';
 
-    const args = [
-      'port-forward',
-      `service/${serviceName}`,
-      `${localPort}:${remotePort}`
-    ];
+      const args = [
+        'port-forward',
+        `service/${serviceName}`,
+        `${localPort}:${remotePort}`
+      ];
 
-    // Spawn detached process
-    const child: ChildProcess = spawn('kubectl', args, {
-      detached: true,
-      stdio: 'ignore',
-      shell: isWindows
+      // Spawn detached process
+      const child: ChildProcess = spawn('kubectl', args, {
+        detached: true,
+        stdio: 'ignore',
+        shell: isWindows
+      });
+
+      // Handle spawn errors (e.g., kubectl not found)
+      child.on('error', (err) => {
+        if (err.message.includes('ENOENT')) {
+          reject(new Error('kubectl not found. Please ensure kubectl is installed and in your PATH.'));
+        } else {
+          reject(err);
+        }
+      });
+
+      // Wait a moment to ensure the process started successfully
+      setTimeout(() => {
+        // Unref to allow parent process to exit
+        child.unref();
+        console.log(`Started port-forward for ${serviceName} on localhost:${localPort} -> ${remotePort}`);
+        resolve();
+      }, 100);
     });
-
-    // Unref to allow parent process to exit
-    child.unref();
-
-    console.log(`Started port-forward for ${serviceName} on localhost:${localPort} -> ${remotePort}`);
   }
 
   /**

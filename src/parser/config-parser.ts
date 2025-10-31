@@ -40,7 +40,7 @@ export class ConfigParser {
       }
 
       // Check for group declaration (e.g., "group1: {" or "group1:{")
-      const groupMatch = line.match(/^([a-zA-Z-]+)\s*:\s*\{/);
+      const groupMatch = line.match(/^([a-zA-Z0-9-]+)\s*:\s*\{/);
       if (groupMatch) {
         const groupName = groupMatch[1];
         currentGroup = {
