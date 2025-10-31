@@ -1,5 +1,8 @@
 import { spawn, ChildProcess, exec } from 'child_process';
 import { promisify } from 'util';
+import * as fs from 'fs';
+import * as path from 'path';
+import * as os from 'os';
 
 const execAsync = promisify(exec);
 
@@ -23,21 +26,35 @@ export class PortForwardManager {
       const contextFlag = context ? `--context ${context}` : '';
 
       if (isWindows) {
-        // Windows: Use shell directly with windowsHide to prevent console windows
-        const args = [
-          'port-forward',
-          `service/${serviceName}`,
-          `${localPort}:${remotePort}`
-        ];
-        if (context) {
-          args.push('--context', context);
-        }
-        child = spawn('kubectl', args, {
+        // Windows: Use VBScript to run kubectl completely hidden (no window flash)
+        const contextArg = context ? ` --context ${context}` : '';
+        const kubectlCmd = `kubectl port-forward service/${serviceName} ${localPort}:${remotePort}${contextArg}`;
+
+        // Create a temporary VBScript file that runs kubectl hidden
+        const vbsContent = `Set WshShell = CreateObject("WScript.Shell")
+WshShell.Run "${kubectlCmd}", 0, False
+Set WshShell = Nothing`;
+
+        const tempDir = os.tmpdir();
+        const vbsPath = path.join(tempDir, `kxpf-${Date.now()}-${Math.random().toString(36).substr(2, 9)}.vbs`);
+
+        fs.writeFileSync(vbsPath, vbsContent);
+
+        // Run the VBScript using wscript.exe (no console window at all)
+        child = spawn('wscript.exe', [vbsPath], {
           detached: true,
-          stdio: ['ignore', 'pipe', 'pipe'],
-          shell: true,
+          stdio: ['ignore', 'ignore', 'ignore'],
           windowsHide: true
         });
+
+        // Delete the VBScript file after a short delay
+        setTimeout(() => {
+          try {
+            fs.unlinkSync(vbsPath);
+          } catch (err) {
+            // Ignore error if file doesn't exist
+          }
+        }, 2000);
       } else {
         // Unix: Try kubectl first, fallback to minikube kubectl
         const kubectlCmd = `kubectl port-forward service/${serviceName} ${localPort}:${remotePort} ${contextFlag}`;
@@ -102,26 +119,33 @@ export class PortForwardManager {
       let output: string;
 
       if (isWindows) {
-        // Windows: Use WMIC to search for kubectl port-forward in command line
-        // Search for any process with "port-forward" in the command line
-        const { stdout } = await execAsync('wmic process where "commandline like \'%port-forward%\' and commandline like \'%kubectl%\'" get commandline,processid /format:csv');
-        output = stdout;
+        // Windows: Use PowerShell with WMI to get kubectl process command lines
+        // Use a simpler approach that works across different shell environments
+        const psScript = `Get-WmiObject Win32_Process -Filter \\"name='kubectl.exe'\\" | Where-Object { $_.CommandLine -like '*port-forward*' } | ForEach-Object { @{pid=$_.ProcessId; cmd=$_.CommandLine} } | ConvertTo-Json`;
 
-        const lines = output.split('\n').filter(line => line.includes('port-forward'));
+        const { stdout } = await execAsync(`powershell.exe -NoProfile -Command "${psScript}"`);
+        output = stdout.trim();
 
-        for (const line of lines) {
-          const match = line.match(/service\/([^\s]+)\s+(\d+):(\d+)/);
-          if (match) {
-            const [, serviceName, localPort, remotePort] = match;
-            const pidMatch = line.match(/,(\d+)\s*$/);
-            const pid = pidMatch ? parseInt(pidMatch[1], 10) : undefined;
+        if (output) {
+          try {
+            const processes = JSON.parse(output);
+            const processList = Array.isArray(processes) ? processes : [processes];
 
-            portForwards.push({
-              serviceName,
-              localPort: parseInt(localPort, 10),
-              remotePort: parseInt(remotePort, 10),
-              pid
-            });
+            for (const proc of processList) {
+              if (!proc || !proc.cmd) continue;
+              const match = proc.cmd.match(/service\/([^\s]+)\s+(\d+):(\d+)/);
+              if (match) {
+                const [, serviceName, localPort, remotePort] = match;
+                portForwards.push({
+                  serviceName,
+                  localPort: parseInt(localPort, 10),
+                  remotePort: parseInt(remotePort, 10),
+                  pid: proc.pid
+                });
+              }
+            }
+          } catch (parseError) {
+            // If JSON parsing fails or no processes found, return empty array
           }
         }
       } else {
