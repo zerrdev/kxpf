@@ -60,10 +60,10 @@ export class PortForwardManager {
   }
 
   /**
-   * Lists all running port-forwards by parsing kubectl processes
+   * Lists all running port-forwards by parsing kubectl processes (internal, no deduplication)
    * This uses system commands to find kubectl port-forward processes
    */
-  static async list(): Promise<PortForward[]> {
+  private static async listAll(): Promise<PortForward[]> {
     const isWindows = process.platform === 'win32';
     const portForwards: PortForward[] = [];
 
@@ -126,10 +126,28 @@ export class PortForwardManager {
   }
 
   /**
+   * Lists all running port-forwards (deduplicated for display)
+   */
+  static async list(): Promise<PortForward[]> {
+    const portForwards = await this.listAll();
+
+    // Deduplicate port-forwards (minikube creates multiple processes for the same service)
+    const uniqueForwards = new Map<string, PortForward>();
+    for (const pf of portForwards) {
+      const key = `${pf.serviceName}:${pf.localPort}:${pf.remotePort}`;
+      if (!uniqueForwards.has(key)) {
+        uniqueForwards.set(key, pf);
+      }
+    }
+
+    return Array.from(uniqueForwards.values());
+  }
+
+  /**
    * Stops port-forwards matching a service name prefix
    */
   static async stop(servicePrefix: string): Promise<number> {
-    const running = await this.list();
+    const running = await this.listAll();
     const matching = running.filter(pf => pf.serviceName.startsWith(servicePrefix));
 
     if (matching.length === 0) {
@@ -137,35 +155,49 @@ export class PortForwardManager {
       return 0;
     }
 
+    // Track which services we've already logged
+    const logged = new Set<string>();
+
     for (const pf of matching) {
       if (pf.pid) {
         await this.killProcess(pf.pid);
-        console.log(`Stopped port-forward for ${pf.serviceName} (localhost:${pf.localPort})`);
+        const key = `${pf.serviceName}:${pf.localPort}`;
+        if (!logged.has(key)) {
+          console.log(`Stopped port-forward for ${pf.serviceName} (localhost:${pf.localPort})`);
+          logged.add(key);
+        }
       }
     }
 
-    return matching.length;
+    return logged.size;
   }
 
   /**
    * Stops all running port-forwards
    */
   static async stopAll(): Promise<number> {
-    const running = await this.list();
+    const running = await this.listAll();
 
     if (running.length === 0) {
       console.log('No running port-forwards found');
       return 0;
     }
 
+    // Track which services we've already logged
+    const logged = new Set<string>();
+
     for (const pf of running) {
       if (pf.pid) {
         await this.killProcess(pf.pid);
-        console.log(`Stopped port-forward for ${pf.serviceName} (localhost:${pf.localPort})`);
+        const key = `${pf.serviceName}:${pf.localPort}`;
+        if (!logged.has(key)) {
+          console.log(`Stopped port-forward for ${pf.serviceName} (localhost:${pf.localPort})`);
+          logged.add(key);
+        }
       }
     }
 
-    return running.length;
+    return logged.size;
   }
 
   /**
