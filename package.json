@@ -1,6 +1,6 @@
 {
   "name": "kxpf",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "CLI tool for managing Kubernetes service port-forwarding groups",
   "main": "dist/index.js",
   "bin": {
