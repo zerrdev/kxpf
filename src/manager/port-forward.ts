@@ -17,19 +17,28 @@ export class PortForwardManager {
   static async start(serviceName: string, localPort: number, remotePort: number): Promise<void> {
     return new Promise((resolve, reject) => {
       const isWindows = process.platform === 'win32';
+      let child: ChildProcess;
 
-      const args = [
-        'port-forward',
-        `service/${serviceName}`,
-        `${localPort}:${remotePort}`
-      ];
-
-      // Spawn detached process
-      const child: ChildProcess = spawn('kubectl', args, {
-        detached: true,
-        stdio: 'ignore',
-        shell: isWindows
-      });
+      if (isWindows) {
+        // Windows: Use shell directly
+        const args = [
+          'port-forward',
+          `service/${serviceName}`,
+          `${localPort}:${remotePort}`
+        ];
+        child = spawn('kubectl', args, {
+          detached: true,
+          stdio: 'ignore',
+          shell: true
+        });
+      } else {
+        // Unix: Try kubectl first, fallback to minikube kubectl
+        const command = `(kubectl port-forward service/${serviceName} ${localPort}:${remotePort} 2>/dev/null || minikube kubectl -- port-forward service/${serviceName} ${localPort}:${remotePort}) &`;
+        child = spawn('bash', ['-c', command], {
+          detached: true,
+          stdio: 'ignore'
+        });
+      }
 
       // Handle spawn errors (e.g., kubectl not found)
       child.on('error', (err) => {
@@ -84,8 +93,8 @@ export class PortForwardManager {
           }
         }
       } else {
-        // Unix: Use ps to list processes
-        const { stdout } = await execAsync('ps aux | grep "[k]ubectl port-forward"');
+        // Unix: Use ps to list processes (supports both kubectl and minikube kubectl)
+        const { stdout } = await execAsync('ps aux | grep "port-forward" | grep -E "(kubectl|minikube)"');
         output = stdout;
 
         const lines = output.split('\n').filter(line => line.trim());
