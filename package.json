@@ -11,7 +11,12 @@
     "dev": "tsx src/index.ts",
     "start": "node dist/index.js"
   },
-  "keywords": ["kubernetes", "port-forward", "cli", "kubectl"],
+  "keywords": [
+    "kubernetes",
+    "port-forward",
+    "cli",
+    "kubectl"
+  ],
   "author": "",
   "license": "ISC",
   "engines": {
@@ -22,7 +27,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
-    "typescript": "^5.7.2",
-    "tsx": "^4.19.2"
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
   }
 }
