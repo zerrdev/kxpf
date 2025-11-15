@@ -13,7 +13,7 @@ const program = new Command();
 program
   .name('kxpf')
   .description('CLI tool for managing Kubernetes service port-forwarding groups')
-  .version('1.1.3')
+  .version('1.1.4')
   .helpOption('-h, --help', 'Display help for command');
 
 // Note: Global error handlers removed to avoid interfering with Commander.js
