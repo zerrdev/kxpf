@@ -3,6 +3,7 @@ import { promisify } from 'util';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { KubectlNotFoundError, PortForwardError } from '../errors';
 
 const execAsync = promisify(exec);
 
@@ -10,101 +11,185 @@ export interface PortForward {
   serviceName: string;
   localPort: number;
   remotePort: number;
-  pid?: number;
+  pid?: number | undefined;
 }
 
 export class PortForwardManager {
   /**
+   * Validates port-forward parameters before starting
+   */
+  private static validateStartParams(serviceName: string, localPort: number, remotePort: number): void {
+    if (!serviceName || typeof serviceName !== 'string') {
+      throw new Error('Service name is required and must be a string');
+    }
+    
+    if (!Number.isInteger(localPort) || localPort < 1 || localPort > 65535) {
+      throw new Error(`Invalid local port: ${localPort}. Must be an integer between 1 and 65535.`);
+    }
+    
+    if (!Number.isInteger(remotePort) || remotePort < 1 || remotePort > 65535) {
+      throw new Error(`Invalid remote port: ${remotePort}. Must be an integer between 1 and 65535.`);
+    }
+  }
+
+  /**
+   * Checks if kubectl is available
+   */
+  private static async checkKubectlAvailability(): Promise<void> {
+    try {
+      const { stdout } = await execAsync('kubectl version --client --short');
+      if (!stdout.includes('Client Version:')) {
+        throw new KubectlNotFoundError();
+      }
+    } catch (error) {
+      throw new KubectlNotFoundError(error instanceof Error ? error : undefined);
+    }
+  }
+
+  /**
+   * Builds the appropriate kubectl command for the platform
+   */
+  private static buildKubectlCommand(
+    serviceName: string,
+    localPort: number,
+    remotePort: number,
+    context?: string
+  ): { command: string; args: string[]; useShell: boolean } {
+    const contextFlag = context ? `--context ${context}` : '';
+    const isWindows = process.platform === 'win32';
+
+    if (isWindows) {
+      // Windows: Use PowerShell for better compatibility
+      const kubectlCmd = `kubectl port-forward service/${serviceName} ${localPort}:${remotePort} ${contextFlag}`;
+      return {
+        command: 'powershell.exe',
+        args: ['-Command', kubectlCmd],
+        useShell: false
+      };
+    } else {
+      // Unix: Try kubectl first, fallback to minikube kubectl
+      const kubectlCmd = `kubectl port-forward service/${serviceName} ${localPort}:${remotePort} ${contextFlag}`;
+      const minikubeCmd = `minikube kubectl -- port-forward service/${serviceName} ${localPort}:${remotePort} ${contextFlag}`;
+      return {
+        command: 'bash',
+        args: ['-c', `(${kubectlCmd} || ${minikubeCmd})`],
+        useShell: false
+      };
+    }
+  }
+
+  /**
    * Starts a port-forward for a service in detached mode
+   * @param serviceName - Kubernetes service name
+   * @param localPort - Local port to bind to
+   * @param remotePort - Remote port on the service
+   * @param context - Optional Kubernetes context
+   * @throws PortForwardError if the operation fails
    */
   static async start(serviceName: string, localPort: number, remotePort: number, context?: string): Promise<void> {
-    return new Promise((resolve, reject) => {
-      const isWindows = process.platform === 'win32';
-      let child: ChildProcess;
-      let errorOutput = '';
+    try {
+      // Validate parameters
+      this.validateStartParams(serviceName, localPort, remotePort);
 
-      const contextFlag = context ? `--context ${context}` : '';
+      // Check kubectl availability
+      await this.checkKubectlAvailability();
 
-      if (isWindows) {
-        // Windows: Use VBScript to run kubectl completely hidden (no window flash)
-        const contextArg = context ? ` --context ${context}` : '';
-        const kubectlCmd = `kubectl port-forward service/${serviceName} ${localPort}:${remotePort}${contextArg}`;
+      return new Promise((resolve, reject) => {
+        const isWindows = process.platform === 'win32';
+        let child: ChildProcess;
+        let errorOutput = '';
 
-        // Create a temporary VBScript file that runs kubectl hidden
-        const vbsContent = `Set WshShell = CreateObject("WScript.Shell")
+        if (isWindows) {
+          // Windows: Use VBScript to run kubectl completely hidden (no window flash)
+          const contextArg = context ? ` --context ${context}` : '';
+          const kubectlCmd = `kubectl port-forward service/${serviceName} ${localPort}:${remotePort}${contextArg}`;
+
+          // Create a temporary VBScript file that runs kubectl hidden
+          const vbsContent = `Set WshShell = CreateObject("WScript.Shell")
 WshShell.Run "${kubectlCmd}", 0, False
 Set WshShell = Nothing`;
 
-        const tempDir = os.tmpdir();
-        const vbsPath = path.join(tempDir, `kxpf-${Date.now()}-${Math.random().toString(36).substr(2, 9)}.vbs`);
+          const tempDir = os.tmpdir();
+          const vbsPath = path.join(tempDir, `kxpf-${Date.now()}-${Math.random().toString(36).substr(2, 9)}.vbs`);
 
-        fs.writeFileSync(vbsPath, vbsContent);
-
-        // Run the VBScript using wscript.exe (no console window at all)
-        child = spawn('wscript.exe', [vbsPath], {
-          detached: true,
-          stdio: ['ignore', 'ignore', 'ignore'],
-          windowsHide: true
-        });
-
-        // Delete the VBScript file after a short delay
-        setTimeout(() => {
           try {
-            fs.unlinkSync(vbsPath);
-          } catch (err) {
-            // Ignore error if file doesn't exist
+            fs.writeFileSync(vbsPath, vbsContent);
+          } catch (error) {
+            reject(new PortForwardError(serviceName, 'Failed to create temporary VBScript file', error as Error));
+            return;
           }
-        }, 2000);
-      } else {
-        // Unix: Try kubectl first, fallback to minikube kubectl
-        const kubectlCmd = `kubectl port-forward service/${serviceName} ${localPort}:${remotePort} ${contextFlag}`;
-        const minikubeCmd = `minikube kubectl -- port-forward service/${serviceName} ${localPort}:${remotePort} ${contextFlag}`;
-        const command = `(${kubectlCmd} || ${minikubeCmd}) &`;
-        child = spawn('bash', ['-c', command], {
-          detached: true,
-          stdio: ['ignore', 'pipe', 'pipe']
-        });
-      }
 
-      // Collect error output temporarily
-      if (child.stderr) {
-        child.stderr.on('data', (data) => {
-          errorOutput += data.toString();
-        });
-      }
+          // Run the VBScript using wscript.exe (no console window at all)
+          child = spawn('wscript.exe', [vbsPath], {
+            detached: true,
+            stdio: ['ignore', 'ignore', 'ignore'],
+            windowsHide: true
+          });
 
-      // Handle spawn errors (e.g., kubectl not found)
-      child.on('error', (err) => {
-        if (err.message.includes('ENOENT')) {
-          reject(new Error('kubectl not found. Please ensure kubectl is installed and in your PATH.'));
+          // Delete the VBScript file after a short delay
+          setTimeout(() => {
+            try {
+              fs.unlinkSync(vbsPath);
+            } catch (err) {
+              // Ignore error if file doesn't exist
+            }
+          }, 2000);
         } else {
-          reject(err);
+          // Unix: Try kubectl first, fallback to minikube kubectl
+          const kubectlCmd = `kubectl port-forward service/${serviceName} ${localPort}:${remotePort} ${context ? `--context ${context}` : ''}`;
+          const minikubeCmd = `minikube kubectl -- port-forward service/${serviceName} ${localPort}:${remotePort} ${context ? `--context ${context}` : ''}`;
+          const command = `(${kubectlCmd} || ${minikubeCmd}) &`;
+          child = spawn('bash', ['-c', command], {
+            detached: true,
+            stdio: ['ignore', 'pipe', 'pipe']
+          });
         }
-      });
 
-      // Check if process exits immediately (indicates error)
-      child.on('exit', (code) => {
-        if (code !== 0 && code !== null) {
-          const error = errorOutput.trim() || `kubectl port-forward exited with code ${code}`;
-          reject(new Error(`Failed to start port-forward for ${serviceName}: ${error}`));
+        // Collect error output temporarily
+        if (child.stderr) {
+          child.stderr.on('data', (data) => {
+            errorOutput += data.toString();
+          });
         }
+
+        // Handle spawn errors (e.g., kubectl not found)
+        child.on('error', (err) => {
+          if (err.message.includes('ENOENT')) {
+            reject(new KubectlNotFoundError(err));
+          } else {
+            reject(new PortForwardError(serviceName, err.message, err));
+          }
+        });
+
+        // Check if process exits immediately (indicates error)
+        child.on('exit', (code) => {
+          if (code !== 0 && code !== null) {
+            const error = errorOutput.trim() || `kubectl port-forward exited with code ${code}`;
+            reject(new PortForwardError(serviceName, error));
+          }
+        });
+
+        // Wait a moment to ensure the process started successfully
+        setTimeout(() => {
+          // If we get here without error, the process started successfully
+          // Remove the exit listener and unref to allow parent process to exit
+          child.removeAllListeners('exit');
+          child.unref();
+
+          // Close stdio streams to truly detach
+          if (child.stdout) child.stdout.destroy();
+          if (child.stderr) child.stderr.destroy();
+
+          console.log(`Started port-forward for ${serviceName} on localhost:${localPort} -> ${remotePort}`);
+          resolve();
+        }, 500);
       });
-
-      // Wait a moment to ensure the process started successfully
-      setTimeout(() => {
-        // If we get here without error, the process started successfully
-        // Remove the exit listener and unref to allow parent process to exit
-        child.removeAllListeners('exit');
-        child.unref();
-
-        // Close stdio streams to truly detach
-        if (child.stdout) child.stdout.destroy();
-        if (child.stderr) child.stderr.destroy();
-
-        console.log(`Started port-forward for ${serviceName} on localhost:${localPort} -> ${remotePort}`);
-        resolve();
-      }, 500);
-    });
+    } catch (error) {
+      if (error instanceof PortForwardError || error instanceof KubectlNotFoundError) {
+        throw error;
+      }
+      throw new PortForwardError(serviceName, error instanceof Error ? error.message : 'Unknown error', error as Error);
+    }
   }
 
   /**
@@ -162,12 +247,15 @@ Set WshShell = Nothing`;
             const pidMatch = line.match(/^\S+\s+(\d+)/);
             const pid = pidMatch ? parseInt(pidMatch[1], 10) : undefined;
 
-            portForwards.push({
-              serviceName,
-              localPort: parseInt(localPort, 10),
-              remotePort: parseInt(remotePort, 10),
-              pid
-            });
+            if (serviceName && localPort && remotePort) {
+              const portForward: PortForward = {
+                serviceName: serviceName,
+                localPort: parseInt(localPort, 10),
+                remotePort: parseInt(remotePort, 10),
+                ...(pid !== undefined && { pid })
+              };
+              portForwards.push(portForward);
+            }
           }
         }
       }

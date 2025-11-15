@@ -1,4 +1,5 @@
 import { PortForwardManager } from '../manager/port-forward';
+import { handleError } from '../utils/error-handler';
 
 export async function lsCommand(): Promise<void> {
   try {
@@ -28,8 +29,7 @@ export async function lsCommand(): Promise<void> {
 
     console.log('─'.repeat(70));
     console.log(`Total: ${running.length} port-forward(s)\n`);
-  } catch (error: any) {
-    console.error('Error listing port-forwards:', error.message);
-    process.exit(1);
+  } catch (error) {
+    handleError(error);
   }
 }

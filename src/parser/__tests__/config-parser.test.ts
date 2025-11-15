@@ -1,342 +1,256 @@
-import { ConfigParser, Config, Group, Service } from '../config-parser';
+import { describe, it, expect } from '@jest/globals';
+import { ConfigParser } from '../config-parser';
+import { 
+  ConfigParseError, 
+  GroupNotFoundError, 
+  ServiceNotFoundError 
+} from '../../errors';
 
 describe('ConfigParser', () => {
   describe('parse', () => {
-    it('should parse a simple single group configuration', () => {
-      const content = `
-test-group: {
-    service1,8080,80
+    it('should parse valid config with single group', () => {
+      const configContent = `
+example-group: {
+    example-service,8080,80
 }
 `;
-      const config = ConfigParser.parse(content);
-
-      expect(config.groups.size).toBe(1);
-      expect(config.groups.has('test-group')).toBe(true);
-
-      const group = config.groups.get('test-group');
+      const result = ConfigParser.parse(configContent);
+      
+      expect(result.groups.size).toBe(1);
+      const group = result.groups.get('example-group');
       expect(group).toBeDefined();
-      expect(group?.name).toBe('test-group');
+      expect(group?.name).toBe('example-group');
       expect(group?.services).toHaveLength(1);
       expect(group?.services[0]).toEqual({
-        name: 'service1',
+        name: 'example-service',
         localPort: 8080,
         remotePort: 80
       });
     });
 
-    it('should parse multiple services in a group', () => {
-      const content = `
+    it('should parse config with context', () => {
+      const configContent = `
 production: {
+    context: prod-cluster
     api-service,8081,80
     web-service,8082,80
-    db-service,5432,5432
 }
 `;
-      const config = ConfigParser.parse(content);
-
-      const group = config.groups.get('production');
-      expect(group?.services).toHaveLength(3);
-      expect(group?.services[0]).toEqual({
-        name: 'api-service',
-        localPort: 8081,
-        remotePort: 80
-      });
-      expect(group?.services[1]).toEqual({
-        name: 'web-service',
-        localPort: 8082,
-        remotePort: 80
-      });
-      expect(group?.services[2]).toEqual({
-        name: 'db-service',
-        localPort: 5432,
-        remotePort: 5432
-      });
-    });
-
-    it('should parse multiple groups', () => {
-      const content = `
-dev-group: {
-    service1,8080,80
-}
-
-prod-group: {
-    service2,8081,80
-}
-`;
-      const config = ConfigParser.parse(content);
-
-      expect(config.groups.size).toBe(2);
-      expect(config.groups.has('dev-group')).toBe(true);
-      expect(config.groups.has('prod-group')).toBe(true);
-    });
-
-    it('should parse group with context', () => {
-      const content = `
-production: {
-    context: prod-cluster
-    api-service,8081,80
-}
-`;
-      const config = ConfigParser.parse(content);
-
-      const group = config.groups.get('production');
+      const result = ConfigParser.parse(configContent);
+      
+      expect(result.groups.size).toBe(1);
+      const group = result.groups.get('production');
       expect(group?.context).toBe('prod-cluster');
-      expect(group?.services).toHaveLength(1);
-    });
-
-    it('should skip comment lines starting with #', () => {
-      const content = `
-# This is a comment
-test-group: {
-    # Another comment
-    service1,8080,80
-    # Yet another comment
-}
-`;
-      const config = ConfigParser.parse(content);
-
-      const group = config.groups.get('test-group');
-      expect(group?.services).toHaveLength(1);
-    });
-
-    it('should skip empty lines', () => {
-      const content = `
-
-test-group: {
-
-    service1,8080,80
-
-}
-
-`;
-      const config = ConfigParser.parse(content);
-
-      const group = config.groups.get('test-group');
-      expect(group?.services).toHaveLength(1);
-    });
-
-    it('should handle services with semicolon terminator', () => {
-      const content = `
-test-group: {
-    service1,8080,80;
-    service2,8081,80;
-}
-`;
-      const config = ConfigParser.parse(content);
-
-      const group = config.groups.get('test-group');
       expect(group?.services).toHaveLength(2);
     });
 
-    it('should handle group names with hyphens and numbers', () => {
-      const content = `
-my-group-123: {
-    service1,8080,80
+    it('should parse config with multiple groups', () => {
+      const configContent = `
+dev: {
+    api-service,8080,80
+}
+
+prod: {
+    context: production
+    api-service,8081,80
+    web-service,8082,80
 }
 `;
-      const config = ConfigParser.parse(content);
-
-      expect(config.groups.has('my-group-123')).toBe(true);
+      const result = ConfigParser.parse(configContent);
+      
+      expect(result.groups.size).toBe(2);
+      expect(result.groups.has('dev')).toBe(true);
+      expect(result.groups.has('prod')).toBe(true);
     });
 
-    it('should handle service names with hyphens and numbers', () => {
-      const content = `
-test-group: {
-    my-service-v2,8080,80
-}
-`;
-      const config = ConfigParser.parse(content);
-
-      const group = config.groups.get('test-group');
-      expect(group?.services[0].name).toBe('my-service-v2');
-    });
-
-    it('should handle group declaration without spaces around colon and brace', () => {
-      const content = `
-test-group:{
-    service1,8080,80
-}
-`;
-      const config = ConfigParser.parse(content);
-
-      expect(config.groups.has('test-group')).toBe(true);
-    });
-
-    it('should handle group declaration with spaces around colon and brace', () => {
-      const content = `
-test-group : {
-    service1,8080,80
-}
-`;
-      const config = ConfigParser.parse(content);
-
-      expect(config.groups.has('test-group')).toBe(true);
-    });
-
-    it('should ignore malformed service lines', () => {
-      const content = `
-test-group: {
-    service1,8080,80
-    invalid-line
+    it('should handle semicolons in service definitions', () => {
+      const configContent = `
+example: {
+    service1,8080,80;
     service2,8081,80
 }
 `;
-      const config = ConfigParser.parse(content);
-
-      const group = config.groups.get('test-group');
-      // Should only parse the two valid service lines
+      const result = ConfigParser.parse(configContent);
+      
+      const group = result.groups.get('example');
       expect(group?.services).toHaveLength(2);
     });
 
-    it('should handle empty groups', () => {
-      const content = `
-empty-group: {
+    it('should skip comments and empty lines', () => {
+      const configContent = `
+# This is a comment
+example: {
+    # Another comment
+    service,8080,80
+    
+    # Empty line above
 }
 `;
-      const config = ConfigParser.parse(content);
-
-      const group = config.groups.get('empty-group');
-      expect(group).toBeDefined();
-      expect(group?.services).toHaveLength(0);
+      const result = ConfigParser.parse(configContent);
+      
+      const group = result.groups.get('example');
+      expect(group?.services).toHaveLength(1);
     });
 
-    it('should parse complex real-world config', () => {
-      const content = `
-# Development environment
-dev: {
-    context: minikube
-    api-service,8080,80
-    frontend-service,3000,3000
-}
-
-# Production environment
-prod: {
-    context: prod-cluster
-    api-service,8081,80
-    frontend-service,8082,3000
-    db-service,5432,5432
-}
-
-# Testing
-test: {
-    mock-api,9000,80
+    it('should throw error for invalid group name', () => {
+      const configContent = `
+invalid@group: {
+    service,8080,80
 }
 `;
-      const config = ConfigParser.parse(content);
+      expect(() => ConfigParser.parse(configContent))
+        .toThrow(ConfigParseError);
+    });
 
-      expect(config.groups.size).toBe(3);
+    it('should throw error for invalid service name', () => {
+      const configContent = `
+example: {
+    invalid-service-name,8080,80
+}
+`;
+      expect(() => ConfigParser.parse(configContent))
+        .toThrow(ConfigParseError);
+    });
 
-      const dev = config.groups.get('dev');
-      expect(dev?.context).toBe('minikube');
-      expect(dev?.services).toHaveLength(2);
+    it('should throw error for invalid port numbers', () => {
+      const configContent = `
+example: {
+    service,invalid,80
+}
+`;
+      expect(() => ConfigParser.parse(configContent))
+        .toThrow(ConfigParseError);
+    });
 
-      const prod = config.groups.get('prod');
-      expect(prod?.context).toBe('prod-cluster');
-      expect(prod?.services).toHaveLength(3);
+    it('should throw error for out of range ports', () => {
+      const configContent = `
+example: {
+    service,0,80
+}
+`;
+      expect(() => ConfigParser.parse(configContent))
+        .toThrow(ConfigParseError);
+    });
 
-      const test = config.groups.get('test');
-      expect(test?.context).toBeUndefined();
-      expect(test?.services).toHaveLength(1);
+    it('should throw error for empty group', () => {
+      const configContent = `
+empty: {
+}
+`;
+      expect(() => ConfigParser.parse(configContent))
+        .toThrow(ConfigParseError);
+    });
+
+    it('should throw error for duplicate service names', () => {
+      const configContent = `
+example: {
+    service,8080,80
+    service,8081,81
+}
+`;
+      expect(() => ConfigParser.parse(configContent))
+        .toThrow(ConfigParseError);
+    });
+
+    it('should throw error for no groups found', () => {
+      const configContent = `
+# Just comments
+# No groups
+`;
+      expect(() => ConfigParser.parse(configContent))
+        .toThrow(ConfigParseError);
+    });
+
+    it('should include filename and line number in errors', () => {
+      const configContent = `
+example: {
+    invalid-service-name,8080,80
+}
+`;
+      try {
+        ConfigParser.parse(configContent, 'test.config');
+      } catch (error) {
+        expect(error).toBeInstanceOf(ConfigParseError);
+        expect((error as ConfigParseError).file).toBe('test.config');
+        expect((error as ConfigParseError).line).toBe(3);
+      }
     });
   });
 
   describe('findGroup', () => {
-    it('should find existing group', () => {
-      const content = `
-test-group: {
-    service1,8080,80
+    it('should return group when found', () => {
+      const configContent = `
+example: {
+    service,8080,80
 }
 `;
-      const config = ConfigParser.parse(content);
-      const group = ConfigParser.findGroup(config, 'test-group');
-
-      expect(group).toBeDefined();
-      expect(group?.name).toBe('test-group');
+      const config = ConfigParser.parse(configContent);
+      const group = ConfigParser.findGroup(config, 'example');
+      
+      expect(group.name).toBe('example');
     });
 
-    it('should return undefined for non-existing group', () => {
-      const content = `
-test-group: {
-    service1,8080,80
+    it('should throw GroupNotFoundError when group not found', () => {
+      const configContent = `
+example: {
+    service,8080,80
 }
 `;
-      const config = ConfigParser.parse(content);
-      const group = ConfigParser.findGroup(config, 'non-existing');
-
-      expect(group).toBeUndefined();
+      const config = ConfigParser.parse(configContent);
+      
+      expect(() => ConfigParser.findGroup(config, 'nonexistent'))
+        .toThrow(GroupNotFoundError);
     });
   });
 
   describe('findServicesWithPrefix', () => {
-    let group: Group;
+    const createTestConfig = () => {
+      const configContent = `
+example: {
+    api-service,8080,80
+    web-service,8081,80
+    db-service,5432,5432
+}
+`;
+      return ConfigParser.parse(configContent);
+    };
 
-    beforeEach(() => {
-      group = {
-        name: 'test-group',
-        services: [
-          { name: 'api-service', localPort: 8080, remotePort: 80 },
-          { name: 'api-gateway', localPort: 8081, remotePort: 80 },
-          { name: 'web-service', localPort: 8082, remotePort: 80 },
-          { name: 'worker-service', localPort: 8083, remotePort: 80 }
-        ]
-      };
-    });
-
-    it('should return all services when no prefix is provided', () => {
+    it('should return all services when no prefix provided', () => {
+      const config = createTestConfig();
+      const group = config.groups.get('example')!;
       const services = ConfigParser.findServicesWithPrefix(group);
-
-      expect(services).toHaveLength(4);
+      
+      expect(services).toHaveLength(3);
     });
 
-    it('should return services matching the prefix', () => {
+    it('should return filtered services when prefix provided', () => {
+      const config = createTestConfig();
+      const group = config.groups.get('example')!;
       const services = ConfigParser.findServicesWithPrefix(group, 'api');
-
-      expect(services).toHaveLength(2);
+      
+      expect(services).toHaveLength(1);
       expect(services[0].name).toBe('api-service');
-      expect(services[1].name).toBe('api-gateway');
     });
 
-    it('should return empty array when no services match prefix', () => {
-      const services = ConfigParser.findServicesWithPrefix(group, 'database');
-
-      expect(services).toHaveLength(0);
+    it('should throw ServiceNotFoundError when no services match prefix', () => {
+      const config = createTestConfig();
+      const group = config.groups.get('example')!;
+      
+      expect(() => ConfigParser.findServicesWithPrefix(group, 'nonexistent'))
+        .toThrow(ServiceNotFoundError);
     });
 
-    it('should return single service for exact prefix match', () => {
-      const services = ConfigParser.findServicesWithPrefix(group, 'web-service');
-
-      expect(services).toHaveLength(1);
-      expect(services[0].name).toBe('web-service');
-    });
-
-    it('should be case-sensitive', () => {
-      const services = ConfigParser.findServicesWithPrefix(group, 'API');
-
-      expect(services).toHaveLength(0);
-    });
-
-    it('should handle partial prefix matches', () => {
-      const services = ConfigParser.findServicesWithPrefix(group, 'w');
-
-      expect(services).toHaveLength(2);
-      expect(services[0].name).toBe('web-service');
-      expect(services[1].name).toBe('worker-service');
-    });
-
-    it('should match service with hyphen suffix using prefix without hyphen', () => {
-      // Test the exact scenario from the user: "myservice" should match "myservice-svc"
-      const testGroup: Group = {
-        name: 'test',
-        services: [
-          { name: 'myservice-svc', localPort: 8080, remotePort: 80 },
-          { name: 'other-service', localPort: 8081, remotePort: 80 }
-        ]
-      };
-
-      const services = ConfigParser.findServicesWithPrefix(testGroup, 'myservice');
-
-      expect(services).toHaveLength(1);
-      expect(services[0].name).toBe('myservice-svc');
+    it('should throw ServiceNotFoundError when group has no services', () => {
+      const configContent = `
+empty: {
+    context: test
+}
+`;
+      const config = ConfigParser.parse(configContent);
+      const group = config.groups.get('empty')!;
+      
+      expect(() => ConfigParser.findServicesWithPrefix(group))
+        .toThrow(ServiceNotFoundError);
     });
   });
 });

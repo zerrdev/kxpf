@@ -1,4 +1,5 @@
 import { PortForwardManager } from '../manager/port-forward';
+import { handleError } from '../utils/error-handler';
 
 export async function stopAllCommand(): Promise<void> {
   try {
@@ -6,9 +7,10 @@ export async function stopAllCommand(): Promise<void> {
 
     if (stoppedCount > 0) {
       console.log(`\nStopped all ${stoppedCount} port-forward(s)`);
+    } else {
+      console.log('No running port-forwards found');
     }
-  } catch (error: any) {
-    console.error('Error stopping port-forwards:', error.message);
-    process.exit(1);
+  } catch (error) {
+    handleError(error);
   }
 }

@@ -1,6 +1,8 @@
 import { readConfig } from '../utils/config-path';
 import { ConfigParser } from '../parser/config-parser';
 import { PortForwardManager } from '../manager/port-forward';
+import { KubectlNotFoundError, GroupNotFoundError, ServiceNotFoundError } from '../errors';
+import { handleError } from '../utils/error-handler';
 
 export async function upCommand(groupName: string, servicePrefix?: string): Promise<void> {
   try {
@@ -10,35 +12,40 @@ export async function upCommand(groupName: string, servicePrefix?: string): Prom
 
     // Find the group
     const group = ConfigParser.findGroup(config, groupName);
-    if (!group) {
-      console.error(`Group "${groupName}" not found in config`);
-      process.exit(1);
-    }
 
     // Find services to start
     const services = ConfigParser.findServicesWithPrefix(group, servicePrefix);
-
-    if (services.length === 0) {
-      if (servicePrefix) {
-        console.error(`No services found matching "${servicePrefix}" in group "${groupName}"`);
-      } else {
-        console.error(`No services found in group "${groupName}"`);
-      }
-      process.exit(1);
-    }
 
     // Start port-forwards
     console.log(`Starting port-forwards for group "${groupName}"...`);
     if (group.context) {
       console.log(`Using context: ${group.context}`);
     }
+    
+    const successfulServices: string[] = [];
+    
     for (const service of services) {
-      await PortForwardManager.start(service.name, service.localPort, service.remotePort, group.context);
+      try {
+        await PortForwardManager.start(service.name, service.localPort, service.remotePort, group.context);
+        successfulServices.push(service.name);
+      } catch (error) {
+        if (error instanceof KubectlNotFoundError) {
+          throw error;
+        }
+        console.warn(`Warning: Failed to start port-forward for ${service.name}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      }
     }
 
-    console.log(`\nSuccessfully started ${services.length} port-forward(s)`);
-  } catch (error: any) {
-    console.error('Error starting port-forwards:', error.message);
-    process.exit(1);
+    if (successfulServices.length > 0) {
+      console.log(`\nSuccessfully started ${successfulServices.length} port-forward(s)`);
+      if (successfulServices.length !== services.length) {
+        console.log(`Note: ${services.length - successfulServices.length} service(s) failed to start`);
+      }
+    } else {
+      console.error('\nNo port-forwards were successfully started');
+      process.exit(1);
+    }
+  } catch (error) {
+    handleError(error);
   }
 }
