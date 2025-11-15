@@ -4,6 +4,15 @@ import { KxpfError } from '../errors';
  * Handles errors consistently across the application
  */
 export function handleError(error: unknown): never {
+  // Skip common Commander.js events
+  if (error === '(outputHelp)' || error === '(version)') {
+    process.exit(0);
+  }
+  
+  if (typeof error === 'string' && (error.includes('1.1.3') || error.includes('version'))) {
+    process.exit(0);
+  }
+  
   if (error instanceof KxpfError) {
     console.error(`Error (${error.code}): ${error.message}`);
     if (error._cause) {

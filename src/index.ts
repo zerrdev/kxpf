@@ -7,19 +7,17 @@ import { stopAllCommand } from './commands/stop-all';
 import { lsCommand } from './commands/ls';
 import { configCommand } from './commands/config';
 import { findCommand } from './commands/find';
-import { handleError } from './utils/error-handler';
 
 const program = new Command();
 
 program
   .name('kxpf')
   .description('CLI tool for managing Kubernetes service port-forwarding groups')
-  .version('1.1.2')
+  .version('1.1.3')
   .helpOption('-h, --help', 'Display help for command');
 
-// Add global error handler
-process.on('uncaughtException', handleError);
-process.on('unhandledRejection', handleError);
+// Note: Global error handlers removed to avoid interfering with Commander.js
+// Individual commands handle their own errors appropriately
 
 // kxpf up <group> [service]
 program
@@ -102,11 +100,18 @@ program.on('command:*', () => {
   process.exit(1);
 });
 
-// Handle help
+// Handle help - exit gracefully on version/help commands
 program.exitOverride();
 
 try {
   program.parse();
 } catch (error) {
-  handleError(error);
+  // Handle Commander.js specific errors gracefully
+  if (error && typeof error === 'object' && 'code' in error &&
+      (error.code === 'commander.version' || error.code === 'commander.help' || error.code === 'commander.helpDisplayed')) {
+    // These are normal exit conditions, just exit cleanly
+    process.exit(0);
+  }
+  // For other errors, re-throw to let Node.js handle them
+  throw error;
 }
