@@ -6,8 +6,8 @@ import { KxpfError } from '../errors';
 export function handleError(error: unknown): never {
   if (error instanceof KxpfError) {
     console.error(`Error (${error.code}): ${error.message}`);
-    if (error.cause) {
-      console.error(`Caused by: ${error.cause.message}`);
+    if (error._cause) {
+      console.error(`Caused by: ${error._cause.message}`);
     }
     process.exit(error.exitCode);
   } else if (error instanceof Error) {

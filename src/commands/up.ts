@@ -1,7 +1,7 @@
 import { readConfig } from '../utils/config-path';
 import { ConfigParser } from '../parser/config-parser';
 import { PortForwardManager } from '../manager/port-forward';
-import { KubectlNotFoundError, GroupNotFoundError, ServiceNotFoundError } from '../errors';
+import { KubectlNotFoundError } from '../errors';
 import { handleError } from '../utils/error-handler';
 
 export async function upCommand(groupName: string, servicePrefix?: string): Promise<void> {

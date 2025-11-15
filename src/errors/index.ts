@@ -9,7 +9,7 @@ export abstract class KxpfError extends Error {
   abstract readonly exitCode: number;
   abstract readonly code: string;
 
-  constructor(message: string, public readonly cause?: Error) {
+  constructor(message: string, readonly _cause?: Error) {
     super(message);
     this.name = this.constructor.name;
     

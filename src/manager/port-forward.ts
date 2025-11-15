@@ -47,38 +47,6 @@ export class PortForwardManager {
   }
 
   /**
-   * Builds the appropriate kubectl command for the platform
-   */
-  private static buildKubectlCommand(
-    serviceName: string,
-    localPort: number,
-    remotePort: number,
-    context?: string
-  ): { command: string; args: string[]; useShell: boolean } {
-    const contextFlag = context ? `--context ${context}` : '';
-    const isWindows = process.platform === 'win32';
-
-    if (isWindows) {
-      // Windows: Use PowerShell for better compatibility
-      const kubectlCmd = `kubectl port-forward service/${serviceName} ${localPort}:${remotePort} ${contextFlag}`;
-      return {
-        command: 'powershell.exe',
-        args: ['-Command', kubectlCmd],
-        useShell: false
-      };
-    } else {
-      // Unix: Try kubectl first, fallback to minikube kubectl
-      const kubectlCmd = `kubectl port-forward service/${serviceName} ${localPort}:${remotePort} ${contextFlag}`;
-      const minikubeCmd = `minikube kubectl -- port-forward service/${serviceName} ${localPort}:${remotePort} ${contextFlag}`;
-      return {
-        command: 'bash',
-        args: ['-c', `(${kubectlCmd} || ${minikubeCmd})`],
-        useShell: false
-      };
-    }
-  }
-
-  /**
    * Starts a port-forward for a service in detached mode
    * @param serviceName - Kubernetes service name
    * @param localPort - Local port to bind to
@@ -245,7 +213,7 @@ Set WshShell = Nothing`;
           if (match) {
             const [, serviceName, localPort, remotePort] = match;
             const pidMatch = line.match(/^\S+\s+(\d+)/);
-            const pid = pidMatch ? parseInt(pidMatch[1], 10) : undefined;
+            const pid = pidMatch && pidMatch[1] ? parseInt(pidMatch[1], 10) : undefined;
 
             if (serviceName && localPort && remotePort) {
               const portForward: PortForward = {
