@@ -37,7 +37,7 @@ export class PortForwardManager {
    */
   private static async checkKubectlAvailability(): Promise<void> {
     try {
-      const { stdout } = await execAsync('kubectl version --client --short');
+      const { stdout } = await execAsync('kubectl version --client');
       if (!stdout.includes('Client Version:')) {
         throw new KubectlNotFoundError();
       }

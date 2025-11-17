@@ -156,11 +156,6 @@ export class ConfigParser {
               throw new ConfigParseError(`Invalid port: ${errorMessage}`, filename, lineNumber);
             }
 
-            // Check for duplicate service names within the group
-            if (currentGroup.services.some(s => s.name === name)) {
-              throw new ConfigParseError(`Duplicate service name "${name}" in group "${currentGroup.name}"`, filename, lineNumber);
-            }
-
             const service: Service = {
               name: name,
               localPort,
