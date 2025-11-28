@@ -7,6 +7,7 @@ import { stopAllCommand } from './commands/stop-all';
 import { lsCommand } from './commands/ls';
 import { configCommand } from './commands/config';
 import { findCommand } from './commands/find';
+import { setDebug } from './utils/debug';
 
 const program = new Command();
 
@@ -14,7 +15,8 @@ program
   .name('kxpf')
   .description('CLI tool for managing Kubernetes service port-forwarding groups')
   .version('1.1.5')
-  .helpOption('-h, --help', 'Display help for command');
+  .helpOption('-h, --help', 'Display help for command')
+  .option('--debug', 'Enable debug mode to show detailed output');
 
 // Note: Global error handlers removed to avoid interfering with Commander.js
 // Individual commands handle their own errors appropriately
@@ -25,20 +27,30 @@ program
   .description('Start port-forward(s) for a group, optionally filtered by service prefix')
   .argument('<group>', 'Group name from config file')
   .argument('[service]', 'Optional service prefix to filter which services to start')
-  .action(async (group: string, service?: string) => {
+  .option('--debug', 'Enable debug mode to show detailed output')
+  .action(async (group: string, service?: string, options?: { debug?: boolean }) => {
+    // Set debug mode based on global or command-specific option
+    const isDebug = options?.debug || program.opts().debug;
+    setDebug(isDebug);
+
     // Input validation
     if (!group || typeof group !== 'string') {
       console.error('Error: Group name is required');
       process.exit(1);
     }
-    await upCommand(group.trim(), service?.trim());
+    await upCommand(group.trim(), service?.trim(), isDebug);
   });
 
 // kxpf stop <service>
 program
   .command('stop <service>')
   .description('Stop port-forward(s) matching the service name prefix')
-  .action(async (service: string) => {
+  .option('--debug', 'Enable debug mode to show detailed output')
+  .action(async (service: string, options?: { debug?: boolean }) => {
+    // Set debug mode based on global or command-specific option
+    const isDebug = options?.debug || program.opts().debug;
+    setDebug(isDebug);
+
     // Input validation
     if (!service || typeof service !== 'string') {
       console.error('Error: Service prefix is required');
@@ -52,7 +64,12 @@ program
   .command('stop-all')
   .description('Stop all running port-forwards')
   .alias('stopall')
-  .action(async () => {
+  .option('--debug', 'Enable debug mode to show detailed output')
+  .action(async (options?: { debug?: boolean }) => {
+    // Set debug mode based on global or command-specific option
+    const isDebug = options?.debug || program.opts().debug;
+    setDebug(isDebug);
+
     await stopAllCommand();
   });
 
@@ -61,7 +78,12 @@ program
   .command('ls')
   .description('List all running port-forwards')
   .alias('list')
-  .action(async () => {
+  .option('--debug', 'Enable debug mode to show detailed output')
+  .action(async (options?: { debug?: boolean }) => {
+    // Set debug mode based on global or command-specific option
+    const isDebug = options?.debug || program.opts().debug;
+    setDebug(isDebug);
+
     await lsCommand();
   });
 
@@ -69,7 +91,12 @@ program
 program
   .command('config')
   .description('Open config file in VSCode or show file path')
-  .action(async () => {
+  .option('--debug', 'Enable debug mode to show detailed output')
+  .action(async (options?: { debug?: boolean }) => {
+    // Set debug mode based on global or command-specific option
+    const isDebug = options?.debug || program.opts().debug;
+    setDebug(isDebug);
+
     await configCommand();
   });
 
@@ -78,7 +105,12 @@ program
   .command('find <search-term>')
   .description('Find services in cluster matching the search term')
   .option('-g, --group <group>', 'Filter by group context')
-  .action(async (searchTerm: string, options: { group?: string }) => {
+  .option('--debug', 'Enable debug mode to show detailed output')
+  .action(async (searchTerm: string, options: { group?: string; debug?: boolean }) => {
+    // Set debug mode based on global or command-specific option
+    const isDebug = options.debug || program.opts().debug;
+    setDebug(isDebug);
+
     // Input validation
     if (!searchTerm || typeof searchTerm !== 'string') {
       console.error('Error: Search term is required');

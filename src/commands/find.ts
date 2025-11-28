@@ -4,6 +4,7 @@ import { readConfig } from '../utils/config-path';
 import { ConfigParser } from '../parser/config-parser';
 import { GroupNotFoundError } from '../errors';
 import { handleError } from '../utils/error-handler';
+import { debugLog, debugLogObject, isDebugEnabled } from '../utils/debug';
 
 const execAsync = promisify(exec);
 
@@ -14,7 +15,7 @@ function validateSearchTerm(searchTerm: string): void {
   if (!searchTerm || typeof searchTerm !== 'string' || searchTerm.trim().length === 0) {
     throw new Error('Search term cannot be empty');
   }
-  
+
   if (searchTerm.length < 2) {
     throw new Error('Search term must be at least 2 characters long');
   }
@@ -22,18 +23,25 @@ function validateSearchTerm(searchTerm: string): void {
 
 export async function findCommand(searchTerm: string, groupName?: string): Promise<void> {
   try {
+    debugLog(`Debug mode enabled: ${isDebugEnabled()}`);
+    debugLog(`Finding services matching: ${searchTerm}${groupName ? ` in group: ${groupName}` : ''}`);
+
     validateSearchTerm(searchTerm);
-    
+
     let context: string | undefined;
 
     // If group is specified, get its context
     if (groupName) {
+      debugLog(`Getting context for group: ${groupName}`);
       const configContent = readConfig();
+      debugLog('Config file read successfully');
       const config = ConfigParser.parse(configContent);
+      debugLogObject(config, 'Parsed config');
 
       try {
         const group = ConfigParser.findGroup(config, groupName);
         context = group.context;
+        debugLog(`Found context for group: ${groupName} -> ${context || '(none)'}`);
       } catch (error) {
         if (error instanceof GroupNotFoundError) {
           throw error;
@@ -49,13 +57,18 @@ export async function findCommand(searchTerm: string, groupName?: string): Promi
     // Build kubectl command
     const contextFlag = context ? `--context ${context}` : '';
     const kubectlCmd = `kubectl get services ${contextFlag} --all-namespaces -o wide`;
+    debugLog(`Executing kubectl command: ${kubectlCmd}`);
 
     // Execute kubectl command
     const { stdout } = await execAsync(kubectlCmd);
+    debugLog('Kubectl command executed successfully');
 
     // Parse output
     const lines = stdout.split('\n').filter(line => line.trim());
+    debugLog(`Found ${lines.length} lines in kubectl output`);
+
     if (lines.length <= 1) {
+      debugLog('No services found in cluster output');
       console.log('No services found in cluster');
       return;
     }
@@ -73,7 +86,7 @@ export async function findCommand(searchTerm: string, groupName?: string): Promi
       if (parts.length < 6) continue;
 
       const [namespace, name, type, clusterIP, , ports] = parts;
-      
+
       // Validate that all required fields are present
       if (!namespace || !name || !type || !clusterIP || !ports) {
         continue;
@@ -81,6 +94,7 @@ export async function findCommand(searchTerm: string, groupName?: string): Promi
 
       // Check if service name matches search term (case insensitive)
       if (name.toLowerCase().includes(searchTerm.toLowerCase())) {
+        debugLog(`Found matching service: ${name}`);
         matchingServices.push({
           namespace: namespace,
           name: name,
@@ -91,8 +105,11 @@ export async function findCommand(searchTerm: string, groupName?: string): Promi
       }
     }
 
+    debugLog(`Found ${matchingServices.length} matching services`);
+
     // Display results
     if (matchingServices.length === 0) {
+      debugLog('No services matched the search term');
       if (groupName) {
         console.log(`No services found matching "${searchTerm}" in context of group "${groupName}"`);
       } else {
@@ -113,6 +130,7 @@ export async function findCommand(searchTerm: string, groupName?: string): Promi
       console.log('');
     }
   } catch (error) {
+    debugLog(`Error in findCommand: ${error instanceof Error ? error.message : 'Unknown error'}`);
     handleError(error);
   }
 }

@@ -3,6 +3,7 @@ import { spawn, exec } from 'child_process';
 import { promisify } from 'util';
 import * as os from 'os';
 import { handleError } from '../utils/error-handler';
+import { debugLog, isDebugEnabled } from '../utils/debug';
 
 const execAsync = promisify(exec);
 
@@ -11,24 +12,28 @@ const execAsync = promisify(exec);
  */
 async function isVSCodeAvailable(): Promise<boolean> {
   try {
+    debugLog('Checking if VSCode is available...');
     const isWindows = process.platform === 'win32';
-    
+
     if (isWindows) {
       // On Windows, try multiple approaches to detect VSCode
       const commands = [
         'where code',  // Look in PATH
         'powershell -Command "Get-Command code"'  // PowerShell command detection
       ];
-      
+
       for (const command of commands) {
         try {
           const { stdout } = await execAsync(command, { timeout: 5000 });
-          if (stdout.trim()) return true;
+          if (stdout.trim()) {
+            debugLog('VSCode found via command: ' + command);
+            return true;
+          }
         } catch {
           // Continue to next command
         }
       }
-      
+
       // Try common installation paths on Windows
       const commonPaths = [
         `${os.homedir()}\\AppData\\Local\\Programs\\Microsoft VS Code\\bin\\code.cmd`,
@@ -36,12 +41,13 @@ async function isVSCodeAvailable(): Promise<boolean> {
         `C:\\Program Files\\Microsoft VS Code\\bin\\code.cmd`,
         `C:\\Program Files\\Microsoft VS Code\\Code.exe`
       ];
-      
+
       for (const path of commonPaths) {
         try {
           const fs = await import('fs/promises');
           try {
             await fs.access(path);
+            debugLog('VSCode found at path: ' + path);
             return true;
           } catch {
             // File doesn't exist or not accessible
@@ -56,19 +62,24 @@ async function isVSCodeAvailable(): Promise<boolean> {
         'which code',
         'command -v code'
       ];
-      
+
       for (const command of commands) {
         try {
           const { stdout } = await execAsync(command);
-          if (stdout.trim()) return true;
+          if (stdout.trim()) {
+            debugLog('VSCode found via command: ' + command);
+            return true;
+          }
         } catch {
           // Continue to next command
         }
       }
     }
-    
+
+    debugLog('VSCode not found');
     return false;
   } catch {
+    debugLog('Error checking for VSCode availability');
     return false;
   }
 }
@@ -77,6 +88,7 @@ async function isVSCodeAvailable(): Promise<boolean> {
  * Opens file with system default editor on Windows as fallback
  */
 function openWithDefaultEditor(filePath: string): void {
+  debugLog('Opening file with system default editor: ' + filePath);
   if (process.platform === 'win32') {
     spawn('start', ['""', filePath], { shell: true, detached: true });
   } else if (process.platform === 'darwin') {
@@ -110,12 +122,18 @@ function openWithDefaultEditor(filePath: string): void {
  */
 export async function configCommand(): Promise<void> {
   try {
+    debugLog(`Debug mode enabled: ${isDebugEnabled()}`);
+    debugLog('Running config command...');
+
     ensureConfigExists();
     const configPath = getConfigPath();
     const configInfo = getConfigInfo();
 
+    debugLog(`Config file path: ${configPath}`);
+    debugLog(`Config file exists: ${configInfo.exists}`);
+
     console.log(`Config file: ${configPath}`);
-    
+
     if (configInfo.exists) {
       console.log(`Size: ${configInfo.size} bytes`);
       if (configInfo.lastModified) {
@@ -125,17 +143,18 @@ export async function configCommand(): Promise<void> {
 
     // Try to open with VSCode
     const isAvailable = await isVSCodeAvailable();
-    
+
     if (isAvailable) {
       const isWindows = process.platform === 'win32';
       let vscode: any;
-      
+
       if (isWindows) {
         // On Windows, try to find the exact VSCode executable path
         try {
           const { stdout } = await execAsync('where code');
           const firstLine = stdout.split('\n')[0];
           const codePath = firstLine ? firstLine.trim() : 'code';
+          debugLog(`Opening VSCode via path: ${codePath}`);
           vscode = spawn('"' + codePath + '"', [configPath], {
             stdio: 'ignore',
             detached: true,
@@ -143,6 +162,7 @@ export async function configCommand(): Promise<void> {
           });
         } catch {
           // Fallback to just using 'code' command
+          debugLog('Opening VSCode via code command');
           vscode = spawn('code', [configPath], {
             stdio: 'ignore',
             detached: true
@@ -150,6 +170,7 @@ export async function configCommand(): Promise<void> {
         }
       } else {
         // On Unix-like systems
+        debugLog('Opening VSCode via code command');
         vscode = spawn('code', [configPath], {
           stdio: 'ignore',
           detached: true
@@ -157,6 +178,7 @@ export async function configCommand(): Promise<void> {
       }
 
       vscode.on('error', () => {
+        debugLog('VSCode found but failed to launch, trying system default editor');
         console.log('\nVSCode found but failed to launch. Trying system default editor...');
         try {
           openWithDefaultEditor(configPath);
@@ -170,6 +192,7 @@ export async function configCommand(): Promise<void> {
       });
 
       vscode.on('spawn', () => {
+        debugLog('Successfully opened config file in editor');
         console.log(`\nOpening config file in VSCode...`);
         vscode.unref();
       });
@@ -179,6 +202,7 @@ export async function configCommand(): Promise<void> {
         process.exit(0);
       }, 100);
     } else {
+      debugLog('VSCode not available, opening with system default editor');
       console.log('\nVSCode not found. Opening with system default editor...');
       try {
         openWithDefaultEditor(configPath);
@@ -189,10 +213,11 @@ export async function configCommand(): Promise<void> {
         console.log(`2. Use another editor to open: ${configPath}`);
         console.log('3. Edit the config file manually');
       }
-      
+
       process.exit(0);
     }
   } catch (error) {
+    debugLog(`Error in configCommand: ${error instanceof Error ? error.message : 'Unknown error'}`);
     handleError(error);
   }
 }

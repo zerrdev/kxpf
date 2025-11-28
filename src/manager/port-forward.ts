@@ -4,6 +4,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { KubectlNotFoundError, PortForwardError } from '../errors';
+import { debugLog } from '../utils/debug';
 
 const execAsync = promisify(exec);
 
@@ -36,12 +37,20 @@ export class PortForwardManager {
    * Checks if kubectl is available
    */
   private static async checkKubectlAvailability(): Promise<void> {
+    debugLog('Checking kubectl availability...');
     try {
+      debugLog('Running command: kubectl version --client');
       const { stdout } = await execAsync('kubectl version --client');
+      debugLog('kubectl command executed successfully');
+
       if (!stdout.includes('Client Version:')) {
+        debugLog('kubectl client version not found in output');
         throw new KubectlNotFoundError();
       }
+
+      debugLog('kubectl is available and working');
     } catch (error) {
+      debugLog(`kubectl check failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
       throw new KubectlNotFoundError(error instanceof Error ? error : undefined);
     }
   }
@@ -56,11 +65,15 @@ export class PortForwardManager {
    */
   static async start(serviceName: string, localPort: number, remotePort: number, context?: string): Promise<void> {
     try {
+      debugLog(`Starting port-forward for service: ${serviceName} (local:${localPort} -> remote:${remotePort})${context ? ` in context: ${context}` : ''}`);
+
       // Validate parameters
       this.validateStartParams(serviceName, localPort, remotePort);
+      debugLog('Parameters validated successfully');
 
       // Check kubectl availability
       await this.checkKubectlAvailability();
+      debugLog('Kubectl availability confirmed');
 
       return new Promise((resolve, reject) => {
         const isWindows = process.platform === 'win32';
@@ -71,6 +84,7 @@ export class PortForwardManager {
           // Windows: Use VBScript to run kubectl completely hidden (no window flash)
           const contextArg = context ? ` --context ${context}` : '';
           const kubectlCmd = `kubectl port-forward service/${serviceName} ${localPort}:${remotePort}${contextArg}`;
+          debugLog(`Executing on Windows: ${kubectlCmd}`);
 
           // Create a temporary VBScript file that runs kubectl hidden
           const vbsContent = `Set WshShell = CreateObject("WScript.Shell")
@@ -79,10 +93,13 @@ Set WshShell = Nothing`;
 
           const tempDir = os.tmpdir();
           const vbsPath = path.join(tempDir, `kxpf-${Date.now()}-${Math.random().toString(36).substr(2, 9)}.vbs`);
+          debugLog(`VBScript path: ${vbsPath}`);
 
           try {
             fs.writeFileSync(vbsPath, vbsContent);
+            debugLog('VBScript file created successfully');
           } catch (error) {
+            debugLog(`Failed to create VBScript file: ${error instanceof Error ? error.message : 'Unknown error'}`);
             reject(new PortForwardError(serviceName, 'Failed to create temporary VBScript file', error as Error));
             return;
           }
@@ -98,7 +115,9 @@ Set WshShell = Nothing`;
           setTimeout(() => {
             try {
               fs.unlinkSync(vbsPath);
+              debugLog('VBScript file deleted');
             } catch (err) {
+              debugLog(`Warning: Could not delete VBScript file: ${err instanceof Error ? err.message : 'Unknown error'}`);
               // Ignore error if file doesn't exist
             }
           }, 2000);
@@ -106,6 +125,8 @@ Set WshShell = Nothing`;
           // Unix: Try kubectl first, fallback to minikube kubectl
           const kubectlCmd = `kubectl port-forward service/${serviceName} ${localPort}:${remotePort} ${context ? `--context ${context}` : ''}`;
           const minikubeCmd = `minikube kubectl -- port-forward service/${serviceName} ${localPort}:${remotePort} ${context ? `--context ${context}` : ''}`;
+          debugLog(`Executing on Unix: ${kubectlCmd} (with minikube fallback)`);
+
           const command = `(${kubectlCmd} || ${minikubeCmd}) &`;
           child = spawn('bash', ['-c', command], {
             detached: true,
@@ -116,12 +137,15 @@ Set WshShell = Nothing`;
         // Collect error output temporarily
         if (child.stderr) {
           child.stderr.on('data', (data) => {
-            errorOutput += data.toString();
+            const dataStr = data.toString();
+            debugLog(`Port-forward stderr for ${serviceName}: ${dataStr}`);
+            errorOutput += dataStr;
           });
         }
 
         // Handle spawn errors (e.g., kubectl not found)
         child.on('error', (err) => {
+          debugLog(`Port-forward spawn error for ${serviceName}: ${err.message}`);
           if (err.message.includes('ENOENT')) {
             reject(new KubectlNotFoundError(err));
           } else {
@@ -131,14 +155,18 @@ Set WshShell = Nothing`;
 
         // Check if process exits immediately (indicates error)
         child.on('exit', (code) => {
+          debugLog(`Port-forward process for ${serviceName} exited with code: ${code}`);
           if (code !== 0 && code !== null) {
             const error = errorOutput.trim() || `kubectl port-forward exited with code ${code}`;
+            debugLog(`Port-forward failed for ${serviceName} with error: ${error}`);
             reject(new PortForwardError(serviceName, error));
           }
         });
 
         // Wait a moment to ensure the process started successfully
         setTimeout(() => {
+          debugLog(`Port-forward for ${serviceName} successfully initiated`);
+
           // If we get here without error, the process started successfully
           // Remove the exit listener and unref to allow parent process to exit
           child.removeAllListeners('exit');
@@ -153,6 +181,7 @@ Set WshShell = Nothing`;
         }, 500);
       });
     } catch (error) {
+      debugLog(`Error in PortForwardManager.start for ${serviceName}: ${error instanceof Error ? error.message : 'Unknown error'}`);
       if (error instanceof PortForwardError || error instanceof KubectlNotFoundError) {
         throw error;
       }
@@ -168,47 +197,67 @@ Set WshShell = Nothing`;
     const isWindows = process.platform === 'win32';
     const portForwards: PortForward[] = [];
 
+    debugLog('Listing all running port-forwards...');
     try {
       let output: string;
 
       if (isWindows) {
+        debugLog('Running on Windows platform');
         // Windows: Use PowerShell with WMI to get kubectl process command lines
         // Use a simpler approach that works across different shell environments
         const psScript = `Get-WmiObject Win32_Process -Filter \\"name='kubectl.exe'\\" | Where-Object { $_.CommandLine -like '*port-forward*' } | ForEach-Object { @{pid=$_.ProcessId; cmd=$_.CommandLine} } | ConvertTo-Json`;
 
+        debugLog(`Executing PowerShell command: powershell.exe -NoProfile -Command "${psScript}"`);
         const { stdout } = await execAsync(`powershell.exe -NoProfile -Command "${psScript}"`);
         output = stdout.trim();
+        debugLog(`PowerShell command output: ${output}`);
 
         if (output) {
           try {
             const processes = JSON.parse(output);
+            debugLog(`Parsed ${Array.isArray(processes) ? processes.length : 1} process(es) from PowerShell output`);
             const processList = Array.isArray(processes) ? processes : [processes];
 
             for (const proc of processList) {
-              if (!proc || !proc.cmd) continue;
+              if (!proc || !proc.cmd) {
+                debugLog('Skipping invalid process entry');
+                continue;
+              }
+              debugLog(`Processing process command: ${proc.cmd}`);
               const match = proc.cmd.match(/service\/([^\s]+)\s+(\d+):(\d+)/);
               if (match) {
                 const [, serviceName, localPort, remotePort] = match;
+                debugLog(`Found port-forward: ${serviceName} (local:${localPort} -> remote:${remotePort}, PID:${proc.pid})`);
                 portForwards.push({
                   serviceName,
                   localPort: parseInt(localPort, 10),
                   remotePort: parseInt(remotePort, 10),
                   pid: proc.pid
                 });
+              } else {
+                debugLog('No port-forward pattern found in process command');
               }
             }
           } catch (parseError) {
+            debugLog(`Failed to parse PowerShell output: ${parseError instanceof Error ? parseError.message : 'Unknown error'}`);
             // If JSON parsing fails or no processes found, return empty array
           }
+        } else {
+          debugLog('No PowerShell output received');
         }
       } else {
+        debugLog('Running on Unix platform');
         // Unix: Use ps to list processes (supports both kubectl and minikube kubectl)
-        const { stdout } = await execAsync('ps aux | grep "port-forward" | grep -E "(kubectl|minikube)"');
+        const cmd = 'ps aux | grep "port-forward" | grep -E "(kubectl|minikube)"';
+        debugLog(`Executing command: ${cmd}`);
+        const { stdout } = await execAsync(cmd);
         output = stdout;
+        debugLog(`Command output: ${output}`);
 
         const lines = output.split('\n').filter(line => line.trim());
 
         for (const line of lines) {
+          debugLog(`Processing line: ${line}`);
           const match = line.match(/service\/([^\s]+)\s+(\d+):(\d+)/);
           if (match) {
             const [, serviceName, localPort, remotePort] = match;
@@ -216,6 +265,7 @@ Set WshShell = Nothing`;
             const pid = pidMatch && pidMatch[1] ? parseInt(pidMatch[1], 10) : undefined;
 
             if (serviceName && localPort && remotePort) {
+              debugLog(`Found port-forward: ${serviceName} (local:${localPort} -> remote:${remotePort}${pid ? `, PID:${pid}` : ''})`);
               const portForward: PortForward = {
                 serviceName: serviceName,
                 localPort: parseInt(localPort, 10),
@@ -223,17 +273,24 @@ Set WshShell = Nothing`;
                 ...(pid !== undefined && { pid })
               };
               portForwards.push(portForward);
+            } else {
+              debugLog('Incomplete port-forward data found');
             }
+          } else {
+            debugLog('No port-forward pattern found in line');
           }
         }
       }
     } catch (error: any) {
+      debugLog(`Error listing port-forwards: ${error instanceof Error ? error.message : 'Unknown error'}`);
       // If no processes found, grep/wmic returns error, but that's okay
       if (!error.stdout || error.stdout.trim() === '') {
+        debugLog('No running port-forwards found');
         return [];
       }
     }
 
+    debugLog(`Found ${portForwards.length} running port-forwards`);
     return portForwards;
   }
 
@@ -259,10 +316,13 @@ Set WshShell = Nothing`;
    * Stops port-forwards matching a service name prefix
    */
   static async stop(servicePrefix: string): Promise<number> {
+    debugLog(`Stopping port-forwards matching prefix: ${servicePrefix}`);
     const running = await this.listAll();
     const matching = running.filter(pf => pf.serviceName.startsWith(servicePrefix));
+    debugLog(`Found ${matching.length} matching port-forwards to stop`);
 
     if (matching.length === 0) {
+      debugLog(`No running port-forwards found matching "${servicePrefix}"`);
       console.log(`No running port-forwards found matching "${servicePrefix}"`);
       return 0;
     }
@@ -271,16 +331,21 @@ Set WshShell = Nothing`;
     const logged = new Set<string>();
 
     for (const pf of matching) {
+      debugLog(`Stopping port-forward for ${pf.serviceName} (PID: ${pf.pid}, localhost:${pf.localPort})`);
       if (pf.pid) {
         await this.killProcess(pf.pid);
         const key = `${pf.serviceName}:${pf.localPort}`;
         if (!logged.has(key)) {
           console.log(`Stopped port-forward for ${pf.serviceName} (localhost:${pf.localPort})`);
           logged.add(key);
+          debugLog(`Stopped port-forward for ${pf.serviceName} (PID: ${pf.pid})`);
         }
+      } else {
+        debugLog(`No PID found for port-forward: ${pf.serviceName} (localhost:${pf.localPort})`);
       }
     }
 
+    debugLog(`Stopped ${logged.size} unique port-forwards`);
     return logged.size;
   }
 
@@ -288,9 +353,12 @@ Set WshShell = Nothing`;
    * Stops all running port-forwards
    */
   static async stopAll(): Promise<number> {
+    debugLog('Stopping all running port-forwards...');
     const running = await this.listAll();
+    debugLog(`Found ${running.length} running port-forwards to stop`);
 
     if (running.length === 0) {
+      debugLog('No running port-forwards found');
       console.log('No running port-forwards found');
       return 0;
     }
@@ -299,16 +367,21 @@ Set WshShell = Nothing`;
     const logged = new Set<string>();
 
     for (const pf of running) {
+      debugLog(`Stopping port-forward for ${pf.serviceName} (PID: ${pf.pid}, localhost:${pf.localPort})`);
       if (pf.pid) {
         await this.killProcess(pf.pid);
         const key = `${pf.serviceName}:${pf.localPort}`;
         if (!logged.has(key)) {
           console.log(`Stopped port-forward for ${pf.serviceName} (localhost:${pf.localPort})`);
           logged.add(key);
+          debugLog(`Stopped port-forward for ${pf.serviceName} (PID: ${pf.pid})`);
         }
+      } else {
+        debugLog(`No PID found for port-forward: ${pf.serviceName} (localhost:${pf.localPort})`);
       }
     }
 
+    debugLog(`Stopped ${logged.size} unique port-forwards`);
     return logged.size;
   }
 
@@ -317,14 +390,22 @@ Set WshShell = Nothing`;
    */
   private static async killProcess(pid: number): Promise<void> {
     const isWindows = process.platform === 'win32';
+    debugLog(`Killing process with PID: ${pid} on ${isWindows ? 'Windows' : 'Unix'}`);
 
     try {
       if (isWindows) {
-        await execAsync(`taskkill /F /PID ${pid}`);
+        const cmd = `taskkill /F /PID ${pid}`;
+        debugLog(`Executing command: ${cmd}`);
+        await execAsync(cmd);
+        debugLog(`Process ${pid} killed successfully on Windows`);
       } else {
-        await execAsync(`kill ${pid}`);
+        const cmd = `kill ${pid}`;
+        debugLog(`Executing command: ${cmd}`);
+        await execAsync(cmd);
+        debugLog(`Process ${pid} killed successfully on Unix`);
       }
     } catch (error) {
+      debugLog(`Failed to kill process ${pid}: ${error instanceof Error ? error.message : 'Unknown error'}`);
       // Process might already be dead, ignore error
     }
   }
