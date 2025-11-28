@@ -14,7 +14,7 @@ const program = new Command();
 program
   .name('kxpf')
   .description('CLI tool for managing Kubernetes service port-forwarding groups')
-  .version('1.1.6')
+  .version('1.1.7')
   .helpOption('-h, --help', 'Display help for command')
   .option('--debug', 'Enable debug mode to show detailed output');
 
@@ -145,3 +145,4 @@ try {
   // For other errors, re-throw to let Node.js handle them
   throw error;
 }
+
