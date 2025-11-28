@@ -77,10 +77,11 @@ export class PortForwardManager {
 
       return new Promise((resolve, reject) => {
         const isWindows = process.platform === 'win32';
-        let child: ChildProcess;
-        let errorOutput = '';
 
         if (isWindows) {
+          let child: ChildProcess;
+          let errorOutput = '';
+
           // Windows: Use VBScript to run kubectl completely hidden (no window flash)
           const contextArg = context ? ` --context ${context}` : '';
           const kubectlCmd = `kubectl port-forward service/${serviceName} ${localPort}:${remotePort}${contextArg}`;
@@ -121,64 +122,76 @@ Set WshShell = Nothing`;
               // Ignore error if file doesn't exist
             }
           }, 2000);
+
+          // Collect error output temporarily
+          if (child.stderr) {
+            child.stderr.on('data', (data) => {
+              const dataStr = data.toString();
+              debugLog(`Port-forward stderr for ${serviceName}: ${dataStr}`);
+              errorOutput += dataStr;
+            });
+          }
+
+          // Handle spawn errors (e.g., kubectl not found)
+          child.on('error', (err) => {
+            debugLog(`Port-forward spawn error for ${serviceName}: ${err.message}`);
+            if (err.message.includes('ENOENT')) {
+              reject(new KubectlNotFoundError(err));
+            } else {
+              reject(new PortForwardError(serviceName, err.message, err));
+            }
+          });
+
+          // Check if process exits immediately (indicates error)
+          child.on('exit', (code) => {
+            debugLog(`Port-forward process for ${serviceName} exited with code: ${code}`);
+            if (code !== 0 && code !== null) {
+              const error = errorOutput.trim() || `kubectl port-forward exited with code ${code}`;
+              debugLog(`Port-forward failed for ${serviceName} with error: ${error}`);
+              reject(new PortForwardError(serviceName, error));
+            }
+          });
+
+          // Wait a moment to ensure the process started successfully
+          setTimeout(() => {
+            debugLog(`Port-forward for ${serviceName} successfully initiated`);
+
+            // If we get here without error, the process started successfully
+            // Remove the exit listener and unref to allow parent process to exit
+            child.removeAllListeners('exit');
+            child.unref();
+
+            // Close stdio streams to truly detach
+            if (child.stdout) child.stdout.destroy();
+            if (child.stderr) child.stderr.destroy();
+
+            console.log(`Started port-forward for ${serviceName} on localhost:${localPort} -> ${remotePort}`);
+            resolve();
+          }, 500);
         } else {
-          // Unix: Try kubectl first, fallback to minikube kubectl
+          // Unix: Try kubectl first, fallback to minikube kubectl with better cross-platform compatibility
           const kubectlCmd = `kubectl port-forward service/${serviceName} ${localPort}:${remotePort} ${context ? `--context ${context}` : ''}`;
           const minikubeCmd = `minikube kubectl -- port-forward service/${serviceName} ${localPort}:${remotePort} ${context ? `--context ${context}` : ''}`;
           debugLog(`Executing on Unix: ${kubectlCmd} (with minikube fallback)`);
 
-          const command = `(${kubectlCmd} || ${minikubeCmd}) &`;
-          child = spawn('bash', ['-c', command], {
-            detached: true,
-            stdio: ['ignore', 'pipe', 'pipe']
+          // Using exec to run the command that backgrounds the process properly
+          debugLog(`Unix command to execute: ${kubectlCmd} || ${minikubeCmd}`);
+          const command = `${kubectlCmd} || ${minikubeCmd}`;
+          exec(command + ' > /dev/null 2>&1 &', (error) => {
+            if (error) {
+              debugLog(`Port-forward execution error for ${serviceName}: ${error.message}`);
+              if (error.message.includes('kubectl')) {
+                reject(new KubectlNotFoundError(error));
+              } else {
+                reject(new PortForwardError(serviceName, error.message, error));
+              }
+            } else {
+              debugLog(`Port-forward for ${serviceName} successfully initiated on Unix`);
+              console.log(`Started port-forward for ${serviceName} on localhost:${localPort} -> ${remotePort}`);
+              resolve();
+            }
           });
         }
-
-        // Collect error output temporarily
-        if (child.stderr) {
-          child.stderr.on('data', (data) => {
-            const dataStr = data.toString();
-            debugLog(`Port-forward stderr for ${serviceName}: ${dataStr}`);
-            errorOutput += dataStr;
-          });
-        }
-
-        // Handle spawn errors (e.g., kubectl not found)
-        child.on('error', (err) => {
-          debugLog(`Port-forward spawn error for ${serviceName}: ${err.message}`);
-          if (err.message.includes('ENOENT')) {
-            reject(new KubectlNotFoundError(err));
-          } else {
-            reject(new PortForwardError(serviceName, err.message, err));
-          }
-        });
-
-        // Check if process exits immediately (indicates error)
-        child.on('exit', (code) => {
-          debugLog(`Port-forward process for ${serviceName} exited with code: ${code}`);
-          if (code !== 0 && code !== null) {
-            const error = errorOutput.trim() || `kubectl port-forward exited with code ${code}`;
-            debugLog(`Port-forward failed for ${serviceName} with error: ${error}`);
-            reject(new PortForwardError(serviceName, error));
-          }
-        });
-
-        // Wait a moment to ensure the process started successfully
-        setTimeout(() => {
-          debugLog(`Port-forward for ${serviceName} successfully initiated`);
-
-          // If we get here without error, the process started successfully
-          // Remove the exit listener and unref to allow parent process to exit
-          child.removeAllListeners('exit');
-          child.unref();
-
-          // Close stdio streams to truly detach
-          if (child.stdout) child.stdout.destroy();
-          if (child.stderr) child.stderr.destroy();
-
-          console.log(`Started port-forward for ${serviceName} on localhost:${localPort} -> ${remotePort}`);
-          resolve();
-        }, 500);
       });
     } catch (error) {
       debugLog(`Error in PortForwardManager.start for ${serviceName}: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -248,9 +261,43 @@ Set WshShell = Nothing`;
       } else {
         debugLog('Running on Unix platform');
         // Unix: Use ps to list processes (supports both kubectl and minikube kubectl)
-        const cmd = 'ps aux | grep "port-forward" | grep -E "(kubectl|minikube)"';
+        // Using pgrep for better cross-platform compatibility (works on macOS and Linux)
+        let stdout = '';
+        let cmd = '';
+
+        try {
+          // Try pgrep first (available on most Unix systems including macOS)
+          debugLog('Attempting to use pgrep for cross-platform process detection');
+          cmd = 'pgrep -f "port-forward.*kubectl|minikube" 2>/dev/null';
+          const { stdout: pids } = await execAsync(cmd);
+          debugLog(`pgrep output: ${pids}`);
+          const pidList = pids.trim().split('\n').filter(pid => pid);
+          debugLog(`Found ${pidList.length} PIDs from pgrep`);
+
+          if (pidList.length > 0) {
+            // Get detailed info for each process
+            for (const pid of pidList) {
+              try {
+                const { stdout: procInfo } = await execAsync(`ps -p ${pid.trim()} -o pid,command 2>/dev/null`);
+                debugLog(`Process info for PID ${pid}: ${procInfo}`);
+                stdout += procInfo + '\n';
+              } catch (error) {
+                debugLog(`Failed to get detailed info for PID ${pid}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+                // If specific PID command fails, fall back to general ps approach
+              }
+            }
+          } else {
+            debugLog('No processes found via pgrep, will use fallback method');
+          }
+        } catch (error) {
+          debugLog(`pgrep command failed, using fallback method: ${error instanceof Error ? error.message : 'Unknown error'}`);
+          // Fallback to the original ps command approach if pgrep is not available
+          cmd = 'ps aux | grep "port-forward" | grep -E "(kubectl|minikube)"';
+          const { stdout: fallbackOutput } = await execAsync(cmd);
+          stdout = fallbackOutput;
+        }
+
         debugLog(`Executing command: ${cmd}`);
-        const { stdout } = await execAsync(cmd);
         output = stdout;
         debugLog(`Command output: ${output}`);
 
@@ -261,8 +308,30 @@ Set WshShell = Nothing`;
           const match = line.match(/service\/([^\s]+)\s+(\d+):(\d+)/);
           if (match) {
             const [, serviceName, localPort, remotePort] = match;
-            const pidMatch = line.match(/^\S+\s+(\d+)/);
-            const pid = pidMatch && pidMatch[1] ? parseInt(pidMatch[1], 10) : undefined;
+            debugLog(`Found service/port match: ${serviceName}, ${localPort}, ${remotePort}`);
+
+            // Handle both formats: full ps aux and PID COMMAND from ps -p
+            // For PID COMMAND format, the PID is at the beginning: "  PID COMMAND"
+            let pid: number | undefined = undefined;
+            const pidMatch = line.match(/^\s*(\d+)\s+/); // Match PID at start of line
+            if (pidMatch && pidMatch[1]) {
+              const parsedPid = parseInt(pidMatch[1], 10);
+              debugLog(`Found PID from new format: ${parsedPid} from line: ${line}`);
+              if (!isNaN(parsedPid)) {
+                pid = parsedPid;
+              }
+            } else {
+              // If we couldn't extract PID from the current line format,
+              // we might need to parse it differently based on the source
+              const auxPidMatch = line.match(/^\S+\s+(\d+)/); // Original ps aux format
+              if (auxPidMatch && auxPidMatch[1]) {
+                const parsedAuxPid = parseInt(auxPidMatch[1], 10);
+                debugLog(`Found PID from aux format: ${parsedAuxPid} from line: ${line}`);
+                if (!isNaN(parsedAuxPid)) {
+                  pid = parsedAuxPid;
+                }
+              }
+            }
 
             if (serviceName && localPort && remotePort) {
               debugLog(`Found port-forward: ${serviceName} (local:${localPort} -> remote:${remotePort}${pid ? `, PID:${pid}` : ''})`);
