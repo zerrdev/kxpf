@@ -14,7 +14,7 @@ const program = new Command();
 program
   .name('kxpf')
   .description('CLI tool for managing Kubernetes service port-forwarding groups')
-  .version('1.1.5')
+  .version('1.1.6')
   .helpOption('-h, --help', 'Display help for command')
   .option('--debug', 'Enable debug mode to show detailed output');
 
